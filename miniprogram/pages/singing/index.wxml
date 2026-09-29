@@ -1,0 +1,99 @@
+<view class="page">
+  <view class="page-confetti confetti-a"></view>
+  <view class="page-confetti confetti-b"></view>
+  <view wx:if="{{!started && !finished}}" class="setup">
+    <view class="setup-heading">
+      <view>
+        <view class="eyebrow"><view class="eyebrow-dot"></view>{{modeTitle}}</view>
+        <view class="title">选一个舒服的音</view>
+        <view class="subtitle">先选组别，再选择要练习的唱名。</view>
+      </view>
+      <view class="sing-buddy" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-mouth"></view></view>
+    </view>
+
+    <view class="setup-card">
+      <view class="card-tape"></view>
+      <text class="label">选择组别</text>
+      <scroll-view class="note-scroll" scroll-x>
+        <view class="note-row">
+          <text wx:for="{{octaveOptions}}" wx:key="*this" class="note-choice {{selectedOctave === item ? 'selected' : ''}}" data-octave="{{item}}" bindtap="chooseOctave">第{{item}}组</text>
+        </view>
+      </scroll-view>
+
+      <text class="label">{{mode === 'scale' ? '选择起始音' : '选择唱名'}}</text>
+      <view class="note-row note-name-row">
+        <text wx:for="{{noteOptions}}" wx:key="*this" class="note-choice {{initialNote === item + selectedOctave ? 'selected' : ''}}" data-note="{{item}}" bindtap="chooseInitial">{{item}}</text>
+      </view>
+
+      <view class="selected-note">{{mode === 'scale' ? '起始音' : '当前音'}}：<text>{{initialNote}}</text></view>
+      <button class="demo-row" bindtap="toggleDemo" hover-class="demo-pressed" aria-label="{{demoPlaying ? '停止示范音' : '播放示范音'}}">
+        <view class="demo-button"><view class="{{demoPlaying ? 'stop-shape' : 'play-shape'}}"></view></view>
+        <view class="demo-content">
+          <text class="demo-title">{{demoPlaying ? (mode === 'scale' ? '完整音阶播放中' : '模拟钢琴音播放中') : (mode === 'scale' ? '试听完整音阶' : '试听模拟钢琴音')}}</text>
+          <text class="demo-copy">{{mode === 'scale' ? '起始音高' : '当前音高'}}：{{initialNote}}</text>
+        </view>
+      </button>
+      <button class="primary" bindtap="start" hover-class="button-pressed" disabled="{{starting}}">{{starting ? '正在准备麦克风…' : '开始录音练习'}}</button>
+      <text class="permission-hint">点击后会请求麦克风权限</text>
+      <text wx:if="{{feedbackType === 'error'}}" class="setup-error">{{feedback}}</text>
+    </view>
+  </view>
+
+  <view wx:elif="{{started}}" class="practice">
+    <view class="record-state {{recording ? 'recording' : ''}}">
+      <view class="record-dot"></view>
+      <text>{{recording ? '正在录音 · 正在监听' : '已暂停'}}</text>
+      <text class="record-time">{{seconds}}s</text>
+    </view>
+
+    <view class="current-reading">
+      <text class="reading-caption">当前唱到</text>
+      <text class="note">{{currentNote}}</text>
+      <view class="target-chip">目标 {{targetNote}}</view>
+      <text class="status-label {{feedbackType}}">{{feedback}}</text>
+      <text class="pitch-number">{{pitch}}<block wx:if="{{pitch !== '--'}}"> · {{cents > 0 ? '+' + cents : cents}} cents</block></text>
+    </view>
+
+    <view class="input-meter" aria-label="麦克风输入强度">
+      <view class="input-meter-fill" style="width:{{inputLevel}}%;"></view>
+    </view>
+
+    <view class="pitch-chart">
+      <view wx:for="{{chartLines}}" wx:key="label" class="chart-line {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;">
+        <text>{{item.label}}</text>
+      </view>
+      <view wx:for="{{pitchSegments}}" wx:key="key" class="pitch-segment" style="left:{{item.left}}%;top:{{item.top}}%;width:{{item.width}}%;transform:rotate({{item.angle}}deg);"></view>
+      <view wx:for="{{pitchDots}}" wx:key="left" class="pitch-dot" style="left:{{item.left}}%;top:{{item.top}}%;"></view>
+      <view wx:if="{{!chartHasSignal}}" class="chart-empty">
+        <view wx:if="{{waveformBars.length}}" class="waveform-preview" aria-label="实时声音波形">
+          <view wx:for="{{waveformBars}}" wx:key="index" style="height:{{item}}%;"></view>
+        </view>
+        <view wx:else class="chart-empty-pulse"></view>
+        <text>{{waveformBars.length ? '声音已收到，正在定位音高' : (recording ? '唱出一个持续音，轨迹会出现在这里' : '录音准备中')}}</text>
+      </view>
+    </view>
+
+    <view class="chart-legend">
+      <text>实时音高轨迹</text>
+      <text>纵向：音高　横向：时间</text>
+    </view>
+    <view class="progress"><view style="width:{{progress}}%;"></view></view>
+    <view class="bottom-actions">
+      <button bindtap="finish" hover-class="action-pressed">结束练习</button>
+      <button class="pause" bindtap="pause" hover-class="action-pressed">{{paused ? '继续录音' : '暂停'}}</button>
+    </view>
+  </view>
+
+  <view wx:else class="finished">
+    <view class="finish-mark"><view class="finish-eye left"></view><view class="finish-eye right"></view><view class="finish-smile"></view></view>
+    <view class="title">今天又收集了一颗音符</view>
+    <view class="subtitle">你已经认真听见并唱出了这个音。</view>
+    <view class="summary">
+      <view><text>{{seconds}}</text><text>练习秒数</text></view>
+      <view><text>{{initialNote}}</text><text>起始音高</text></view>
+      <view><text>{{frameCount}}</text><text>分析次数</text></view>
+    </view>
+    <button class="primary" bindtap="restart" hover-class="button-pressed">再练一次</button>
+    <button class="ghost" bindtap="goHome" hover-class="ghost-pressed">回到首页</button>
+  </view>
+</view>

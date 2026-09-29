@@ -1,0 +1,97 @@
+<!-- 乐搭卡通主题首页 -->
+<view class="page-shell">
+  <view class="confetti confetti-one"></view>
+  <view class="confetti confetti-two"></view>
+  <view class="confetti confetti-three"></view>
+
+  <scroll-view class="content" scroll-y enhanced show-scrollbar="{{false}}">
+    <view wx:if="{{activeTab === 'sing'}}" class="page-content">
+      <view class="heading-row">
+        <view>
+          <view class="eyebrow coral"><view class="eyebrow-dot"></view>声音练习</view>
+          <view class="page-title">把声音唱成<text class="title-highlight coral-text">彩色</text></view>
+          <view class="page-subtitle">跟着音符，一步一步唱。</view>
+        </view>
+        <view class="buddy buddy-coral" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-smile"></view></view>
+      </view>
+
+      <view class="feature-card coral-card">
+        <view class="card-spark spark-one"></view><view class="card-spark spark-two"></view>
+        <view class="feature-badge">今日推荐</view>
+        <text class="feature-title">音阶跟练</text>
+        <text class="feature-copy">实时看见自己的音高轨迹</text>
+        <view class="feature-visual voice-visual" aria-hidden="true"><view></view><view></view><view></view><view></view><view></view></view>
+        <button class="primary-button dark-button" bindtap="startSinging" hover-class="button-pressed">开始练习</button>
+      </view>
+
+      <view class="section-heading"><text>再来一点</text><text class="section-hint">按自己的节奏</text></view>
+      <view class="quick-grid">
+        <view class="quick-card lavender-card" bindtap="startSingle" hover-class="card-pressed" role="button" aria-label="开始单音模唱"><view class="quick-icon voice-dot-icon" aria-hidden="true"><view></view></view><text class="quick-title">单音模唱</text><text class="quick-copy">听一个，唱一个</text></view>
+        <view class="quick-card soft-card" bindtap="showComingSoon" hover-class="card-pressed" role="button" aria-label="音域探索，即将加入"><view class="quick-icon range-icon" aria-hidden="true"><view></view></view><text class="quick-title">音域探索</text><text class="quick-copy">正在准备中</text></view>
+      </view>
+
+      <view class="tip-card" bindtap="continueLesson" hover-class="card-pressed" role="button" aria-label="去乐理认识音高"><view class="tip-icon" aria-hidden="true"><view class="tip-note"></view></view><view class="tip-content"><text class="tip-label">听懂自己</text><text class="tip-title">为什么有些音听起来更高？</text></view><view class="chevron"></view></view>
+    </view>
+
+    <view wx:if="{{activeTab === 'practice'}}" class="page-content">
+      <view class="heading-row">
+        <view><view class="eyebrow mint"><view class="eyebrow-dot"></view>乐搭 · LETA</view><view class="page-title">今天也和音乐<text class="title-highlight mint-text">玩一会</text></view><view class="page-subtitle">不用急，练一点点就很好。</view></view>
+        <view class="buddy buddy-mint" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-smile"></view></view>
+      </view>
+
+      <view class="hero-card"><view class="hero-orb"></view><view class="hero-star star-one"></view><view class="hero-star star-two"></view><view class="card-kicker">今日练习</view><view class="hero-title">从一个音开始吧</view><view class="hero-copy">耳朵准备好了吗？</view><button class="primary-button yellow-button" bindtap="startSinging" hover-class="button-pressed">开始练习</button></view>
+
+      <view class="section-heading"><text>快速开始</text><text class="section-hint">选一个就好</text></view>
+      <view class="quick-grid">
+        <view class="quick-card coral-soft-card" bindtap="startSinging" hover-class="card-pressed" role="button" aria-label="开始音阶跟练"><view class="quick-icon scale-icon" aria-hidden="true"><view></view></view><text class="quick-title">音阶跟练</text><text class="quick-copy">练声音</text></view>
+        <view class="quick-card mint-soft-card" bindtap="openMetronome" hover-class="card-pressed" role="button" aria-label="打开节拍器"><view class="quick-icon tempo-icon" aria-hidden="true"><view></view></view><text class="quick-title">节拍器</text><text class="quick-copy">稳节奏</text></view>
+      </view>
+
+      <view class="section-heading"><text>继续学习</text></view>
+      <view class="lesson-card" bindtap="continueLesson" hover-class="card-pressed" role="button" aria-label="继续乐理入门"><view class="book-icon" aria-hidden="true"><view></view></view><view class="lesson-info"><text class="lesson-title">乐理入门</text><text class="lesson-copy">第 {{theoryProgress}} 课 · 认识音名</text></view><view class="chevron"></view></view>
+
+      <view class="section-heading"><text>最近记录</text></view>
+      <view class="empty-card"><view class="tiny-face" aria-hidden="true"><view></view></view><text>{{practiceMinutes > 0 ? '累计已练习 ' + practiceMinutes + ' 分钟' : '第一次练习后，这里会留下脚印'}}</text></view>
+    </view>
+
+    <view wx:if="{{activeTab === 'instrument'}}" class="page-content">
+      <view class="heading-row">
+        <view><view class="eyebrow mint"><view class="eyebrow-dot"></view>乐器练习</view><view class="page-title">让节奏先<text class="title-highlight mint-text">稳下来</text></view><view class="page-subtitle">跟着拍子，慢慢找到律动。</view></view>
+        <view class="buddy buddy-mint" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-smile"></view></view>
+      </view>
+
+      <view class="feature-card mint-card"><view class="feature-badge mint-badge">节奏工具</view><text class="feature-title">节拍器</text><text class="feature-copy">找到适合你的稳定速度</text><view class="metronome" aria-hidden="true"><view class="metronome-arm"></view><view class="metronome-dot"></view></view><view class="bpm-display"><text class="bpm-number">{{bpm}}</text><text class="bpm-unit">BPM · {{metronomePlaying ? '第 ' + beat + ' / 4 拍' : '4 / 4 拍'}}</text></view><view class="bpm-controls"><button bindtap="changeBpm" data-delta="-1" hover-class="round-pressed" aria-label="速度减一">−</button><button class="play-button" bindtap="toggleMetronome" hover-class="round-pressed" aria-label="{{metronomePlaying ? '暂停节拍器' : '启动节拍器'}}"><view class="{{metronomePlaying ? 'stop-shape' : 'play-shape'}}"></view></button><button bindtap="changeBpm" data-delta="1" hover-class="round-pressed" aria-label="速度加一">＋</button></view><text class="play-status">{{metronomePlaying ? '跟着小绿点一起数拍' : '准备好就开始'}}</text></view>
+    </view>
+
+    <view wx:if="{{activeTab === 'theory'}}" class="page-content">
+      <view class="heading-row">
+        <view><view class="eyebrow yellow"><view class="eyebrow-dot"></view>零基础乐理</view><view class="page-title">把音乐知识变成<text class="title-highlight yellow-text">小积木</text></view><view class="page-subtitle">每天认识一个新概念。</view></view>
+        <view class="buddy buddy-yellow" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-smile"></view></view>
+      </view>
+
+      <view class="progress-card"><view class="progress-row"><text>我的学习进度</text><text class="progress-number">{{theoryProgress}} / 8</text></view><view class="progress-track"><view class="progress-value" style="width: {{theoryProgress / 8 * 100}}%;"></view><view class="progress-face" style="left: {{theoryProgress / 8 * 100}}%;"><view></view></view></view><button class="secondary-button" bindtap="continueLesson" hover-class="button-pressed">继续学习</button></view>
+
+      <view class="section-heading"><text>今日推荐</text><text class="section-hint">约 3 分钟</text></view>
+      <view class="course-card" bindtap="continueLesson" hover-class="card-pressed" role="button" aria-label="学习半音和全音"><view class="course-number">03</view><view class="course-info"><text class="course-title">半音和全音</text><text class="course-copy">基础认识 · 有试听</text></view><view class="chevron"></view></view>
+    </view>
+
+    <view wx:if="{{activeTab === 'me'}}" class="page-content">
+      <view class="heading-row">
+        <view><view class="eyebrow lavender"><view class="eyebrow-dot"></view>我的成长</view><view class="page-title">每一次练习都算<text class="title-highlight lavender-text">一颗星</text></view><view class="page-subtitle">不用比较，只看见自己的变化。</view></view>
+        <view class="buddy buddy-lavender" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-smile"></view></view>
+      </view>
+
+      <view class="stats-card"><view><text class="stat-number">{{practiceMinutes}}</text><text class="stat-label">练习分钟</text></view><view><text class="stat-number">{{practiceDays}}</text><text class="stat-label">练习天数</text></view><view><text class="stat-number">{{theoryProgress}}</text><text class="stat-label">学习课程</text></view></view>
+
+      <view class="section-heading"><text>我的进度</text></view>
+      <view class="progress-list"><view><view class="list-dot coral-dot"></view><text>唱 · 音阶跟练</text><text class="list-value">{{practiceMinutes > 0 ? '已练习' : '未开始'}}</text></view><view><view class="list-dot mint-dot"></view><text>乐器 · 节拍器</text><text class="list-value">{{metronomePlaying ? '进行中' : '准备中'}}</text></view><view><view class="list-dot yellow-dot"></view><text>乐理 · 基础认识</text><text class="list-value">{{theoryProgress}} / 8</text></view></view>
+
+      <view class="section-heading"><text>设置</text></view>
+      <view class="settings-card"><text bindtap="showSetting" data-key="audio">音频设置</text><text bindtap="showSetting" data-key="feedback">反馈偏好 · {{feedbackMode}}</text><text bindtap="showSetting" data-key="about">关于乐搭</text></view>
+    </view>
+  </scroll-view>
+
+  <view class="tabbar">
+    <view wx:for="{{tabs}}" wx:key="key" class="tab-item {{activeTab === item.key ? 'active ' + item.key : ''}}" data-key="{{item.key}}" bindtap="switchTab" hover-class="tab-pressed" role="button" aria-label="{{item.label}}"><view class="tab-bubble"><view class="nav-icon nav-{{item.key}}"></view></view><view class="active-dot"></view></view>
+  </view>
+</view>
