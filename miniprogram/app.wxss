@@ -1,10 +1,52 @@
-/**app.wxss**/
-.container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 200rpx 0;
+page {
+  --leta-bg: #faf8fc;
+  --leta-surface: #ffffff;
+  --leta-surface-soft: #f4eff8;
+  --leta-text: #4a4350;
+  --leta-text-secondary: #756d7d;
+  --leta-border: #e8e0eb;
+  --leta-primary: #86689f;
+  --leta-primary-soft: #f0e8f5;
+  --leta-sing: #c48fa2;
+  --leta-sing-soft: #f8edf1;
+  --leta-instrument: #9a7fb8;
+  --leta-instrument-soft: #f2ecf8;
+  --leta-theory: #ad94bd;
+  --leta-theory-soft: #f4eef7;
+  --leta-practice: #d79592;
+  --leta-practice-soft: #faeeee;
+  --leta-success: #6f887f;
+  --leta-error: #a76170;
+  --leta-chart: #494151;
+  --leta-target: #b8afc1;
+  --leta-pitch: #adc7c1;
+  --leta-shadow-card: 0 10rpx 28rpx rgba(102, 82, 116, 0.08);
+  min-height: 100%;
+  background: var(--leta-bg);
+  color: var(--leta-text);
+  font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 28rpx;
+}
+
+button {
   box-sizing: border-box;
-} 
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.3;
+  font-family: inherit;
+}
+
+button::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  view,
+  button {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}

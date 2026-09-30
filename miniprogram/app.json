@@ -2,14 +2,14 @@
   "pages": [
     "pages/index/index",
     "pages/singing/index",
-    "pages/theory/index",
-    "pages/logs/logs"
+    "pages/theory/index"
   ],
   "window": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "乐搭",
-    "navigationBarBackgroundColor": "#FFF8ED",
-    "backgroundColor": "#FFF8ED"
+    "navigationBarBackgroundColor": "#FAF8FC",
+    "backgroundColor": "#FAF8FC",
+    "backgroundTextStyle": "dark"
   },
   "style": "v2",
   "componentFramework": "glass-easel",

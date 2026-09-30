@@ -1,6 +1,4 @@
 <view class="page">
-  <view class="page-confetti confetti-a"></view>
-  <view class="page-confetti confetti-b"></view>
   <view wx:if="{{!started && !finished}}" class="setup">
     <view class="setup-heading">
       <view>
@@ -8,21 +6,19 @@
         <view class="title">选一个舒服的音</view>
         <view class="subtitle">先选组别，再选择要练习的唱名。</view>
       </view>
-      <view class="sing-buddy" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-mouth"></view></view>
     </view>
 
     <view class="setup-card">
-      <view class="card-tape"></view>
       <text class="label">选择组别</text>
       <scroll-view class="note-scroll" scroll-x>
         <view class="note-row">
-          <text wx:for="{{octaveOptions}}" wx:key="*this" class="note-choice {{selectedOctave === item ? 'selected' : ''}}" data-octave="{{item}}" bindtap="chooseOctave">第{{item}}组</text>
+          <button wx:for="{{octaveOptions}}" wx:key="*this" class="note-choice {{selectedOctave === item ? 'selected' : ''}}" data-octave="{{item}}" bindtap="chooseOctave" hover-class="note-pressed" aria-label="选择第 {{item}} 组">第{{item}}组</button>
         </view>
       </scroll-view>
 
       <text class="label">{{mode === 'scale' ? '选择起始音' : '选择唱名'}}</text>
       <view class="note-row note-name-row">
-        <text wx:for="{{noteOptions}}" wx:key="*this" class="note-choice {{initialNote === item + selectedOctave ? 'selected' : ''}}" data-note="{{item}}" bindtap="chooseInitial">{{item}}</text>
+        <button wx:for="{{noteOptions}}" wx:key="*this" class="note-choice {{initialNote === item + selectedOctave ? 'selected' : ''}}" data-note="{{item}}" bindtap="chooseInitial" hover-class="note-pressed" aria-label="选择音名 {{item}}">{{item}}</button>
       </view>
 
       <view class="selected-note">{{mode === 'scale' ? '起始音' : '当前音'}}：<text>{{initialNote}}</text></view>
@@ -40,18 +36,30 @@
   </view>
 
   <view wx:elif="{{started}}" class="practice">
-    <view class="record-state {{recording ? 'recording' : ''}}">
+    <view class="record-state {{recordingPlayback ? 'playback' : (demoPlaying ? 'demo' : (recording ? 'recording' : ''))}}">
       <view class="record-dot"></view>
-      <text>{{recording ? '正在录音 · 正在监听' : '已暂停'}}</text>
-      <text class="record-time">{{seconds}}s</text>
+      <text>{{recordingPlayback ? '正在回放本次录音' : (demoPlaying ? '正在播放范音' : (recording ? '正在录音 · 正在监听' : '已暂停'))}}</text>
+      <text class="record-time">{{recordingPlayback ? playbackSeconds : seconds}}s</text>
     </view>
 
     <view class="current-reading">
-      <text class="reading-caption">当前唱到</text>
-      <text class="note">{{currentNote}}</text>
-      <view class="target-chip">目标 {{targetNote}}</view>
+      <view class="note-comparison">
+        <view class="note-reading-cell">
+          <text class="reading-caption">{{recordingPlayback ? '回放唱到' : '你唱到'}}</text>
+          <text class="note">{{currentNote}}</text>
+        </view>
+        <view class="comparison-divider"><view></view></view>
+        <view class="note-reading-cell target-reading">
+          <text class="reading-caption">当前目标</text>
+          <text class="target-note-value">{{targetNote}}</text>
+        </view>
+      </view>
       <text class="status-label {{feedbackType}}">{{feedback}}</text>
       <text class="pitch-number">{{pitch}}<block wx:if="{{pitch !== '--'}}"> · {{cents > 0 ? '+' + cents : cents}} cents</block></text>
+      <button wx:if="{{!recordingPlayback}}" class="practice-demo" bindtap="togglePracticeDemo" hover-class="practice-demo-pressed" aria-label="{{demoPlaying ? '停止范音' : (mode === 'scale' ? '播放 ' + initialNote + ' 大调音阶范音' : '播放目标范音 ' + initialNote)}}">
+        <view class="practice-demo-icon"><view class="{{demoPlaying ? 'reference-stop-shape' : 'reference-play-shape'}}"></view></view>
+        <text>{{demoPlaying ? '停止范音' : (mode === 'scale' ? '听音阶范音' : '听范音')}}</text>
+      </button>
     </view>
 
     <view class="input-meter" aria-label="麦克风输入强度">
@@ -59,39 +67,83 @@
     </view>
 
     <view class="pitch-chart">
-      <view wx:for="{{chartLines}}" wx:key="label" class="chart-line {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;">
-        <text>{{item.label}}</text>
+      <scroll-view class="pitch-chart-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{chartScrollLeft}}" bindscroll="onChartScroll" bindtouchstart="onChartTouchStart" bindtouchmove="onChartTouchMove" bindtouchend="onChartTouchEnd" bindtouchcancel="onChartTouchEnd" aria-label="音高时间轨迹，可左右拖动查看历史">
+        <view class="pitch-chart-track" style="width:{{chartWidthRpx}}rpx;">
+          <view wx:for="{{targetGuides}}" wx:key="label" class="target-guide {{targetNote === item.label ? 'active' : ''}}" style="top:{{item.top}}%;"></view>
+          <view wx:for="{{chartLines}}" wx:key="label" class="chart-line {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;"></view>
+          <view wx:for="{{pitchSegments}}" wx:key="key" class="pitch-segment" style="left:{{item.left}}%;top:{{item.top}}%;width:{{item.width}}%;transform:rotate({{item.angle}}deg);"></view>
+          <view wx:for="{{pitchDots}}" wx:key="left" class="pitch-dot" style="left:{{item.left}}%;top:{{item.top}}%;"></view>
+        </view>
+      </scroll-view>
+      <view class="chart-label-layer" aria-hidden="true">
+        <text wx:for="{{chartLines}}" wx:key="label" class="chart-axis-label {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;">{{item.label}}</text>
+        <block wx:for="{{targetGuides}}" wx:key="label">
+          <text wx:if="{{targetNote === item.label}}" class="target-guide-label" style="top:{{item.top}}%;">目标 {{item.label}}</text>
+        </block>
       </view>
-      <view wx:for="{{pitchSegments}}" wx:key="key" class="pitch-segment" style="left:{{item.left}}%;top:{{item.top}}%;width:{{item.width}}%;transform:rotate({{item.angle}}deg);"></view>
-      <view wx:for="{{pitchDots}}" wx:key="left" class="pitch-dot" style="left:{{item.left}}%;top:{{item.top}}%;"></view>
       <view wx:if="{{!chartHasSignal}}" class="chart-empty">
         <view wx:if="{{waveformBars.length}}" class="waveform-preview" aria-label="实时声音波形">
           <view wx:for="{{waveformBars}}" wx:key="index" style="height:{{item}}%;"></view>
         </view>
         <view wx:else class="chart-empty-pulse"></view>
-        <text>{{waveformBars.length ? '声音已收到，正在定位音高' : (recording ? '唱出一个持续音，轨迹会出现在这里' : '录音准备中')}}</text>
+        <text>{{recordingPlayback ? '这段位置没有检测到稳定音高' : (demoPlaying ? '正在播放目标范音' : (waveformBars.length ? '声音已收到，正在定位音高' : (recording ? '唱出一个持续音，轨迹会出现在这里' : '录音准备中')))}}</text>
       </view>
     </view>
 
     <view class="chart-legend">
-      <text>实时音高轨迹</text>
-      <text>纵向：音高　横向：时间</text>
+      <text>{{recordingPlayback ? '录音回放轨迹' : '实时音高轨迹'}} · 淡紫线为目标音</text>
+      <text>左右拖动查看时间</text>
     </view>
+    <button wx:if="{{!chartFollowLatest}}" class="follow-latest" bindtap="followLatestPitch" hover-class="follow-latest-pressed">回到最新音高</button>
+    <button class="recording-playback {{recordingPlayback ? 'playing' : ''}}" bindtap="toggleRecordingPlayback" hover-class="recording-playback-pressed" disabled="{{!hasRecording}}" aria-label="{{recordingPlayback ? '停止回放本次录音' : '回放本次录音'}}">
+      <view class="recording-playback-icon"><view class="{{recordingPlayback ? 'reference-stop-shape' : 'reference-play-shape'}}"></view></view>
+      <view class="recording-playback-copy">
+        <text>{{recordingPlayback ? '停止回放' : '回放本次录音'}}</text>
+        <text>{{hasRecording ? (recordingPlayback ? playbackSeconds + ' / ' + playbackDuration + ' 秒' : '边听边看音高轨迹') : '唱几秒后即可回放'}}</text>
+      </view>
+    </button>
+    <view wx:if="{{recordingPlayback}}" class="playback-progress"><view style="width:{{playbackProgress}}%;"></view></view>
     <view class="progress"><view style="width:{{progress}}%;"></view></view>
     <view class="bottom-actions">
-      <button bindtap="finish" hover-class="action-pressed">结束练习</button>
       <button class="pause" bindtap="pause" hover-class="action-pressed">{{paused ? '继续录音' : '暂停'}}</button>
+      <button class="restart-action" bindtap="restartPractice" hover-class="action-pressed">重新开始</button>
     </view>
   </view>
 
   <view wx:else class="finished">
-    <view class="finish-mark"><view class="finish-eye left"></view><view class="finish-eye right"></view><view class="finish-smile"></view></view>
+    <view class="finish-mark" aria-hidden="true"><view class="finish-check"></view></view>
     <view class="title">今天又收集了一颗音符</view>
     <view class="subtitle">你已经认真听见并唱出了这个音。</view>
     <view class="summary">
       <view><text>{{seconds}}</text><text>练习秒数</text></view>
       <view><text>{{initialNote}}</text><text>起始音高</text></view>
-      <view><text>{{frameCount}}</text><text>分析次数</text></view>
+      <view><text>{{voicedFrames > 0 ? steadyPercent + '%' : '--'}}</text><text>稳定片段</text></view>
+    </view>
+    <view wx:if="{{hasRecording}}" class="finish-playback-card">
+      <view class="finish-playback-title">
+        <text>听听刚才的自己</text>
+        <text>{{recordingPlayback ? playbackSeconds + ' / ' + playbackDuration + ' 秒' : '回放时同步显示音高'}}</text>
+      </view>
+      <view class="pitch-chart finish-pitch-chart">
+        <scroll-view class="pitch-chart-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{chartScrollLeft}}" bindscroll="onChartScroll" bindtouchstart="onChartTouchStart" bindtouchmove="onChartTouchMove" bindtouchend="onChartTouchEnd" bindtouchcancel="onChartTouchEnd" aria-label="录音音高时间轨迹，可左右拖动查看历史">
+          <view class="pitch-chart-track" style="width:{{chartWidthRpx}}rpx;">
+            <view wx:for="{{targetGuides}}" wx:key="label" class="target-guide {{targetNote === item.label ? 'active' : ''}}" style="top:{{item.top}}%;"></view>
+            <view wx:for="{{chartLines}}" wx:key="label" class="chart-line {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;"></view>
+            <view wx:for="{{pitchSegments}}" wx:key="key" class="pitch-segment" style="left:{{item.left}}%;top:{{item.top}}%;width:{{item.width}}%;transform:rotate({{item.angle}}deg);"></view>
+            <view wx:for="{{pitchDots}}" wx:key="left" class="pitch-dot" style="left:{{item.left}}%;top:{{item.top}}%;"></view>
+          </view>
+        </scroll-view>
+        <view class="chart-label-layer" aria-hidden="true">
+          <text wx:for="{{chartLines}}" wx:key="label" class="chart-axis-label {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;">{{item.label}}</text>
+        </view>
+        <view wx:if="{{!chartHasSignal}}" class="chart-empty"><view class="chart-empty-pulse"></view><text>点击回放，音高会出现在这里</text></view>
+      </view>
+      <view class="finish-chart-hint"><text>左右拖动查看整段轨迹</text><button wx:if="{{!chartFollowLatest}}" class="follow-latest compact" bindtap="followLatestPitch" hover-class="follow-latest-pressed">回到最新</button></view>
+      <button class="recording-playback {{recordingPlayback ? 'playing' : ''}}" bindtap="toggleRecordingPlayback" hover-class="recording-playback-pressed">
+        <view class="recording-playback-icon"><view class="{{recordingPlayback ? 'reference-stop-shape' : 'reference-play-shape'}}"></view></view>
+        <text>{{recordingPlayback ? '停止回放' : '播放本次录音'}}</text>
+      </button>
+      <view wx:if="{{recordingPlayback}}" class="playback-progress"><view style="width:{{playbackProgress}}%;"></view></view>
     </view>
     <button class="primary" bindtap="restart" hover-class="button-pressed">再练一次</button>
     <button class="ghost" bindtap="goHome" hover-class="ghost-pressed">回到首页</button>

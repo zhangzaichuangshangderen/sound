@@ -1,47 +1,49 @@
 <view class="page">
-  <view class="confetti confetti-one"></view><view class="confetti confetti-two"></view>
-  <view class="topbar">
-    <button class="back-button" bindtap="goBack" hover-class="back-pressed" aria-label="返回"><view class="back-arrow"></view></button>
+  <view class="lesson-meta">
     <view class="lesson-step">第 3 课 / 8</view>
-    <text class="duration">3 分钟</text>
+    <view class="lesson-progress" aria-label="课程进度三分之八"><view></view><view></view><view class="current"></view><view></view><view></view><view></view><view></view><view></view></view>
+    <text class="duration">约 3 分钟</text>
   </view>
 
   <view class="lesson-heading">
-    <view>
+    <view class="heading-copy">
       <view class="eyebrow"><view class="eyebrow-dot"></view>基础认识</view>
       <view class="title">半音和全音</view>
       <view class="subtitle">两个音之间的距离，也可以被听见。</view>
     </view>
-    <view class="theory-buddy" aria-hidden="true"><view class="buddy-eye left"></view><view class="buddy-eye right"></view><view class="buddy-smile"></view></view>
   </view>
 
   <view class="keyboard-card">
     <view class="keyboard-label">相邻的琴键</view>
-    <view class="keyboard">
+    <view class="keyboard" aria-label="C 到 B 的钢琴键盘示意图">
       <view class="white-keys"><text>C</text><text>D</text><text>E</text><text>F</text><text>G</text><text>A</text><text>B</text></view>
       <view class="black-keys"><text>♯</text><text>♯</text><text></text><text>♯</text><text>♯</text><text>♯</text></view>
     </view>
+    <text class="keyboard-hint">相邻的两个琴键，距离就是一个半音</text>
   </view>
 
   <view class="explain-card">
     <view class="card-tab">先认识一下</view>
     <text class="question">什么是半音？</text>
     <text class="body">半音是音乐里最小的音高距离。钢琴上相邻的两个键，就是半音关系。</text>
-    <button class="sound-row" bindtap="togglePlay" hover-class="sound-pressed" aria-label="{{playing ? '停止播放半音示范' : '播放半音示范'}}">
+    <button class="sound-row {{playing ? 'playing' : ''}}" bindtap="togglePlay" hover-class="sound-pressed" aria-label="{{playing ? '停止播放半音示范' : '播放半音示范'}}">
       <view class="sound-button"><view class="{{playing ? 'stop-shape' : 'play-shape'}}"></view></view>
-      <view><text class="sound-title">{{playing ? '正在播放 C 到 C♯' : '听一听半音'}}</text><text class="sound-copy">依次播放 C4 与 C♯4</text></view>
+      <view class="sound-copy-wrap"><text class="sound-title">{{playing ? '正在播放 C 到 C♯' : '听一听半音'}}</text><text class="sound-copy">依次播放 C4 与 C♯4</text></view>
       <view class="sound-wave" aria-hidden="true"><view></view><view></view><view></view></view>
     </button>
   </view>
 
   <view class="check-card">
-    <view class="check-heading"><view class="question-mark">?</view><text class="check-title">小练习</text></view>
+    <view class="check-heading"><view class="question-mark">?</view><text class="check-title">试试看</text></view>
     <text class="body">C 到 C♯ 之间，是半音还是全音？</text>
     <view class="answer-row">
       <button class="answer-button {{answer === '半音' ? 'answer-selected' : ''}}" data-answer="半音" bindtap="chooseAnswer" hover-class="answer-pressed">半音</button>
       <button class="answer-button {{answer === '全音' ? 'answer-selected' : ''}}" data-answer="全音" bindtap="chooseAnswer" hover-class="answer-pressed">全音</button>
     </view>
-    <text wx:if="{{answer}}" class="answer-hint {{answered ? 'correct' : ''}}">{{answered ? '答对啦！相邻琴键之间是半音。' : '再想想：半音是最小的音高距离。'}}</text>
+    <view wx:if="{{answer}}" class="answer-hint {{answered ? 'correct' : ''}}" role="status">
+      <view class="answer-status-icon">{{answered ? '✓' : 'i'}}</view>
+      <text>{{answered ? '答对啦！相邻琴键之间是半音。' : '再想想：半音是最小的音高距离。'}}</text>
+    </view>
   </view>
 
   <button class="primary" bindtap="complete" hover-class="primary-pressed">{{completed ? '本节已完成 · 返回课程' : '我懂了，继续'}}</button>

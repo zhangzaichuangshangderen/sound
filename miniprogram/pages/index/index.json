@@ -1,4 +1,5 @@
 {
-  "usingComponents": {
-  }
+  "navigationBarTitleText": "乐搭",
+  "navigationBarBackgroundColor": "#FAF8FC",
+  "usingComponents": {}
 }

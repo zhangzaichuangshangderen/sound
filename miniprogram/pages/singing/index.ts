@@ -1,16 +1,25 @@
 const RECORD_SAMPLE_RATE = 16000
+const MAX_PLAYBACK_SECONDS = 180
 const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12]
+const CHART_VIEW_SECONDS = 8
+const CHART_VIEW_WIDTH_RPX = 670
+const CHART_HEIGHT_RPX = 560
 
 type ChartLine = { label: string; top: number; major: boolean }
+type TargetGuide = { label: string; top: number; stagger: boolean }
 type PitchSegment = { key: number; left: number; top: number; width: number; angle: number }
 type PitchDot = { left: number; top: number }
+type RecordedPitchFrame = { at: number; frequency: number; level: number }
 
 Page({
   data: {
-    started: false, finished: false, paused: false, recording: false, demoPlaying: false, starting: false,
+    started: false, finished: false, paused: false, recording: false, demoPlaying: false, recordingPlayback: false, starting: false,
     initialNote: 'C3', currentNote: '--', targetNote: 'C3', selectedOctave: 3, feedback: '先听模拟钢琴音，再开始唱',
     feedbackType: 'idle', pitch: '--', cents: 0, progress: 0, seconds: 0,
     frameCount: 0,
+    voicedFrames: 0,
+    inTuneFrames: 0,
+    steadyPercent: 0,
     octaveOptions: [1, 2, 3, 4, 5, 6],
     noteOptions: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
     mode: 'scale',
@@ -18,11 +27,19 @@ Page({
     modeSubtitle: '先听一个音，再唱给乐搭听。',
     pitchHistory: [] as number[],
     chartLines: [] as ChartLine[],
+    targetGuides: [] as TargetGuide[],
     pitchSegments: [] as PitchSegment[],
     pitchDots: [] as PitchDot[],
     waveformBars: [] as number[],
     chartHasSignal: false,
     inputLevel: 0,
+    hasRecording: false,
+    playbackSeconds: 0,
+    playbackDuration: 0,
+    playbackProgress: 0,
+    chartWidthRpx: CHART_VIEW_WIDTH_RPX,
+    chartScrollLeft: 0,
+    chartFollowLatest: true,
   },
   recorder: null as any,
   audioContext: null as any,
@@ -35,13 +52,30 @@ Page({
   recordingRequested: false,
   recorderActive: false,
   recorderStarting: false,
+  activeCaptureId: 0,
+  wavFailureCount: 0,
+  resumeRecordingAfterDemo: false,
+  pendingRecordingPlayback: false,
+  pendingPracticeRestart: false,
+  recordingPlayer: null as WechatMiniprogram.InnerAudioContext | null,
+  recordedPcmChunks: [] as Int16Array[],
+  recordedPitchFrames: [] as RecordedPitchFrame[],
+  recordedSampleCount: 0,
+  playbackLimitNotified: false,
   detectedFrameCount: 0,
   detectedFrameCountAtRecorderStart: 0,
   chartMinMidi: 36,
   chartMaxMidi: 72,
+  chartTouchStartX: null as number | null,
+  chartCurrentScrollLeft: 0,
+  feedbackMode: '温和' as '温和' | '直接' | '少提示',
   onLoad(options: any) {
     const single = options && options.mode === 'single'
-    this.setData({ mode: single ? 'single' : 'scale', modeTitle: single ? '单音模唱' : '音阶跟练', modeSubtitle: single ? '听清目标音，唱准这一个音。' : '先听一个音，再唱给乐搭听。' })
+    const modeTitle = single ? '单音模唱' : '音阶跟练'
+    this.setData({ mode: single ? 'single' : 'scale', modeTitle, modeSubtitle: single ? '听清目标音，唱准这一个音。' : '先听一个音，再唱给乐搭听。' })
+    wx.setNavigationBarTitle({ title: modeTitle })
+    const storedFeedbackMode = wx.getStorageSync('leta-feedback-mode')
+    if (storedFeedbackMode === '直接' || storedFeedbackMode === '少提示') this.feedbackMode = storedFeedbackMode
     this.recorder = wx.getRecorderManager()
     wx.setInnerAudioOption({
       obeyMuteSwitch: false,
@@ -83,6 +117,10 @@ Page({
     this.recorder.onFrameRecorded((res: any) => this.handleAudioFrame(res.frameBuffer))
   },
   onUnload() {
+    this.resumeRecordingAfterDemo = false
+    this.pendingRecordingPlayback = false
+    this.pendingPracticeRestart = false
+    this.destroyRecordingPlayer()
     this.recordingRequested = false
     this.stopRecorder()
     this.stopElapsedTimer()
@@ -90,9 +128,14 @@ Page({
     if (this.recordingWatchdog) clearTimeout(this.recordingWatchdog)
   },
   onHide() {
+    const wasPracticeDemo = this.data.started && this.data.demoPlaying
+    this.resumeRecordingAfterDemo = false
+    this.pendingRecordingPlayback = false
+    this.pendingPracticeRestart = false
+    this.stopRecordingPlayback(false)
     this.stopDemo()
     if (this.data.demoPlaying) this.setData({ demoPlaying: false })
-    if (!this.data.started || !this.recordingRequested) return
+    if (!this.data.started || (!this.recordingRequested && !wasPracticeDemo)) return
     this.recordingRequested = false
     this.stopRecorder()
     this.stopElapsedTimer()
@@ -108,22 +151,64 @@ Page({
     }
     this.playDemo()
   },
+  togglePracticeDemo() {
+    if (this.data.recordingPlayback) this.stopRecordingPlayback(false)
+    if (this.data.demoPlaying) {
+      this.stopDemo()
+      this.setData({ demoPlaying: false })
+      this.resumeAfterPracticeDemo('已停止范音，继续唱吧')
+      return
+    }
+    this.resumeRecordingAfterDemo = !this.data.paused && this.recordingRequested
+    this.recordingRequested = false
+    this.stopRecorder()
+    this.stopElapsedTimer()
+    const demoName = this.data.mode === 'scale' ? `${this.data.initialNote} 大调音阶` : `目标音 ${this.data.initialNote}`
+    this.setData({ recording: false, feedback: `正在播放 ${demoName}`, feedbackType: 'demo' })
+    this.playDemo()
+  },
+  resumeAfterPracticeDemo(message = '范音播放完毕，继续唱吧', feedbackType = 'listening') {
+    const shouldResume = this.resumeRecordingAfterDemo && this.data.started && !this.data.paused && !this.data.finished
+    this.resumeRecordingAfterDemo = false
+    if (shouldResume) {
+      this.recordingRequested = true
+      this.setData({ feedback: message, feedbackType })
+      this.startRecorder()
+      return
+    }
+    if (this.data.started) this.setData({ feedback: feedbackType === 'error' ? message : '范音播放完毕，练习仍暂停', feedbackType: feedbackType === 'error' ? 'error' : 'idle' })
+  },
   playDemo() {
     this.stopDemo()
+    const practiceDemo = this.data.started
     const wxAudio = wx as any
-    if (typeof wxAudio.createWebAudioContext !== 'function') { this.setData({ demoPlaying: false, feedback: '当前微信版本不支持合成示范音', feedbackType: 'error' }); return }
+    if (typeof wxAudio.createWebAudioContext !== 'function') {
+      this.setData({ demoPlaying: false, feedback: '当前微信版本不支持合成示范音', feedbackType: 'error' })
+      if (practiceDemo) this.resumeAfterPracticeDemo('范音播放失败，请升级微信后重试', 'error')
+      return
+    }
     try {
       const ctx = wxAudio.createWebAudioContext()
       this.audioContext = ctx
       if (ctx.resume) {
         const resumeResult = ctx.resume()
-        if (resumeResult && typeof resumeResult.catch === 'function') resumeResult.catch((error: any) => console.error('恢复音频上下文失败', error))
+        if (resumeResult && typeof resumeResult.catch === 'function') {
+          resumeResult.catch((error: any) => {
+            if (this.audioContext !== ctx) return
+            console.error('恢复音频上下文失败', error)
+            this.stopDemo()
+            this.setData({ demoPlaying: false, feedback: '范音播放失败，请重试', feedbackType: 'error' })
+            if (practiceDemo) this.resumeAfterPracticeDemo('范音播放失败，请重试', 'error')
+          })
+        }
       }
       const now = ctx.currentTime
-      const rootMidi = this.noteToMidi(this.data.initialNote)
-      const scaleOffsets = this.data.mode === 'scale' ? MAJOR_SCALE_OFFSETS : [0]
-      const beatSeconds = this.data.mode === 'scale' ? 1 : 0
-      const noteDuration = this.data.mode === 'scale' ? 0.82 : 1.2
+      const scaleDemo = this.data.mode === 'scale'
+      const rootNote = scaleDemo ? this.data.initialNote : practiceDemo ? this.data.targetNote : this.data.initialNote
+      const rootMidi = this.noteToMidi(rootNote)
+      const scaleOffsets = scaleDemo ? MAJOR_SCALE_OFFSETS : [0]
+      const beatSeconds = scaleDemo ? 1 : 0
+      const noteDuration = scaleDemo ? 0.82 : 1.2
       this.demoSources = []
       scaleOffsets.forEach((offset: number, noteIndex: number) => {
         const frequency = 440 * Math.pow(2, (rootMidi + offset - 69) / 12)
@@ -147,7 +232,7 @@ Page({
         })
       })
       const totalDuration = (scaleOffsets.length - 1) * beatSeconds + noteDuration
-      const description = this.data.mode === 'scale' ? `${this.data.initialNote} 大调音阶` : this.data.initialNote
+      const description = scaleDemo ? `${rootNote} 大调音阶` : `${rootNote} 范音`
       this.setData({ demoPlaying: true, feedback: `模拟钢琴音：${description}`, feedbackType: 'demo' })
       this.demoTimer = setTimeout(() => {
         this.demoSources = []
@@ -157,11 +242,14 @@ Page({
           const closeResult = finishedContext.close()
           if (closeResult && typeof closeResult.catch === 'function') closeResult.catch((error: any) => console.error('关闭音频上下文失败', error))
         }
-        this.setData({ demoPlaying: false, feedback: '听清楚后，点击开始录音', feedbackType: 'idle' })
+        this.setData({ demoPlaying: false })
+        if (practiceDemo) this.resumeAfterPracticeDemo()
+        else this.setData({ feedback: '听清楚后，点击开始录音', feedbackType: 'idle' })
       }, Math.ceil(totalDuration * 1000) + 100) as any
     } catch (error) {
       console.error('合成示范音失败', error)
       this.setData({ demoPlaying: false, feedback: '示范音播放失败，请升级微信后重试', feedbackType: 'error' })
+      if (practiceDemo) this.resumeAfterPracticeDemo('范音播放失败，请重试', 'error')
     }
   },
   stopDemo() {
@@ -228,15 +316,24 @@ Page({
   },
   beginPractice() {
     if (this.data.started && this.recordingRequested) return
+    this.stopRecordingPlayback(false)
+    this.recordedPcmChunks = []
+    this.recordedPitchFrames = []
+    this.recordedSampleCount = 0
+    this.playbackLimitNotified = false
     this.captureMode = 'pcm'
     this.recordingRequested = true
+    this.wavFailureCount = 0
     this.detectedFrameCount = 0
+    this.chartCurrentScrollLeft = 0
     const chartLines = this.buildChartLines()
-    this.setData({ starting: false, started: true, finished: false, paused: false, recording: false, feedback: '正在启动麦克风…', feedbackType: 'listening', progress: 0, seconds: 0, frameCount: 0, pitchHistory: [], pitchSegments: [], pitchDots: [], waveformBars: [], chartHasSignal: false, inputLevel: 0, currentNote: '--', targetNote: this.data.initialNote, pitch: '--', cents: 0, chartLines })
+    const targetGuides = this.buildTargetGuides()
+    this.setData({ starting: false, started: true, finished: false, paused: false, recording: false, recordingPlayback: false, hasRecording: false, playbackSeconds: 0, playbackDuration: 0, playbackProgress: 0, feedback: '正在启动麦克风…', feedbackType: 'listening', progress: 0, seconds: 0, frameCount: 0, voicedFrames: 0, inTuneFrames: 0, steadyPercent: 0, pitchHistory: [], pitchSegments: [], pitchDots: [], waveformBars: [], chartHasSignal: false, inputLevel: 0, currentNote: '--', targetNote: this.data.initialNote, pitch: '--', cents: 0, chartLines, targetGuides, chartWidthRpx: CHART_VIEW_WIDTH_RPX, chartScrollLeft: 0, chartFollowLatest: true })
     this.startRecorder()
   },
   startRecorder() {
     if (!this.recordingRequested || this.recorderActive || this.recorderStarting) return
+    this.activeCaptureId++
     this.activeRecorderMode = this.captureMode
     this.detectedFrameCountAtRecorderStart = this.detectedFrameCount
     this.recorderStarting = true
@@ -282,17 +379,43 @@ Page({
   },
   handleRecorderStop(result: any) {
     const completedMode = this.activeRecorderMode
+    const completedCaptureId = this.activeCaptureId
     this.recorderActive = false
     this.recorderStarting = false
     if (this.recordingWatchdog) clearTimeout(this.recordingWatchdog)
     this.recordingWatchdog = 0
-    if (this.recordingRequested && completedMode === 'wav' && result && result.tempFilePath) this.processWavFile(result.tempFilePath)
-    if (this.recordingRequested) {
-      setTimeout(() => this.startRecorder(), 60)
-    } else {
+    if (!this.recordingRequested) {
       this.stopElapsedTimer()
       this.setData({ recording: false })
+      if (this.pendingPracticeRestart) {
+        this.pendingPracticeRestart = false
+        setTimeout(() => this.beginPractice(), 120)
+        return
+      }
+      if (this.pendingRecordingPlayback) {
+        this.pendingRecordingPlayback = false
+        setTimeout(() => this.startRecordingPlayback(), 120)
+      }
+      return
     }
+    if (completedMode === 'wav') {
+      if (!result || !result.tempFilePath) {
+        this.handleWavFailure(new Error('录音结束后未返回临时文件路径'), () => this.scheduleNextRecording())
+        return
+      }
+      setTimeout(() => {
+        if (!this.recordingRequested || completedCaptureId !== this.activeCaptureId) return
+        this.processWavFile(result.tempFilePath, completedCaptureId, () => this.scheduleNextRecording())
+      }, 80)
+      return
+    }
+    this.scheduleNextRecording()
+  },
+  scheduleNextRecording() {
+    if (!this.recordingRequested || this.data.paused) return
+    setTimeout(() => {
+      if (this.recordingRequested && !this.data.paused) this.startRecorder()
+    }, 60)
   },
   startElapsedTimer() {
     if (this.elapsedTimer) return
@@ -310,18 +433,227 @@ Page({
     if (!buffer || this.activeRecorderMode !== 'pcm' || this.data.paused || !this.recordingRequested) return
     const samples = this.toInt16Samples(buffer)
     if (!samples || samples.length < 1) return
-    this.analyzeSamples(samples, RECORD_SAMPLE_RATE)
+    const recordedAt = this.captureRecordingSamples(samples, RECORD_SAMPLE_RATE)
+    this.analyzeSamples(samples, RECORD_SAMPLE_RATE, recordedAt)
   },
-  processWavFile(filePath: string) {
+  processWavFile(filePath: string, captureId: number, onComplete: () => void, attempt = 0) {
+    wx.getFileSystemManager().readFile({
+      filePath,
+      success: (result) => {
+        if (!this.recordingRequested || captureId !== this.activeCaptureId) return
+        if (!(result.data instanceof ArrayBuffer)) {
+          this.handleWavFailure(new Error('录音文件不是二进制数据'), onComplete)
+          return
+        }
+        const parsed = this.parseWav(result.data)
+        if (!parsed) {
+          this.handleWavFailure(new Error('无法读取 WAV 录音数据'), onComplete)
+          return
+        }
+        this.wavFailureCount = 0
+        const recordedAt = this.captureRecordingSamples(parsed.samples, parsed.sampleRate)
+        this.analyzeSamples(parsed.samples, parsed.sampleRate, recordedAt)
+        onComplete()
+      },
+      fail: (error) => {
+        if (!this.recordingRequested || captureId !== this.activeCaptureId) return
+        const pendingFile = /not found|no such file|not exist/i.test(error.errMsg || '')
+        if (pendingFile && attempt < 2) {
+          const retryDelay = attempt === 0 ? 120 : 240
+          setTimeout(() => {
+            if (!this.recordingRequested || captureId !== this.activeCaptureId) return
+            this.processWavFile(filePath, captureId, onComplete, attempt + 1)
+          }, retryDelay)
+          return
+        }
+        this.handleWavFailure(new Error(error.errMsg || '读取录音临时文件失败'), onComplete)
+      },
+    })
+  },
+  handleWavFailure(error: Error, onComplete: () => void) {
+    this.wavFailureCount++
+    console.error('分析录音片段失败', { error, consecutiveFailures: this.wavFailureCount })
+    if (this.wavFailureCount >= 3) {
+      this.recordingRequested = false
+      this.stopElapsedTimer()
+      this.setData({ recording: false, feedback: '录音文件连续读取失败，请暂停后重新开始；若仍失败请更新微信', feedbackType: 'error' })
+      return
+    }
+    this.setData({ feedback: '这一小段录音读取失败，正在重新监听…', feedbackType: 'listening' })
+    onComplete()
+  },
+  captureRecordingSamples(samples: Int16Array, sampleRate: number): number | null {
+    const normalized = sampleRate === RECORD_SAMPLE_RATE ? samples : this.resampleSamples(samples, sampleRate, RECORD_SAMPLE_RATE)
+    const maxSamples = RECORD_SAMPLE_RATE * MAX_PLAYBACK_SECONDS
+    const remaining = maxSamples - this.recordedSampleCount
+    if (remaining <= 0) {
+      if (!this.playbackLimitNotified) {
+        this.playbackLimitNotified = true
+        wx.showToast({ title: '回放最多保留前 3 分钟', icon: 'none' })
+      }
+      return null
+    }
+    const length = Math.min(remaining, normalized.length)
+    if (length < 1) return null
+    const copy = new Int16Array(length)
+    copy.set(normalized.subarray(0, length))
+    this.recordedPcmChunks.push(copy)
+    this.recordedSampleCount += length
+    if (!this.data.hasRecording) this.setData({ hasRecording: true })
+    return this.recordedSampleCount / RECORD_SAMPLE_RATE * 1000
+  },
+  resampleSamples(samples: Int16Array, sourceRate: number, targetRate: number) {
+    if (sourceRate <= 0 || sourceRate === targetRate) return samples
+    const targetLength = Math.max(1, Math.round(samples.length * targetRate / sourceRate))
+    const output = new Int16Array(targetLength)
+    for (let index = 0; index < targetLength; index++) {
+      const sourceIndex = Math.min(samples.length - 1, Math.round(index * sourceRate / targetRate))
+      output[index] = samples[sourceIndex]
+    }
+    return output
+  },
+  toggleRecordingPlayback() {
+    if (this.data.recordingPlayback) {
+      this.stopRecordingPlayback(true)
+      return
+    }
+    if (!this.data.hasRecording || this.recordedSampleCount < 1) {
+      wx.showToast({ title: '先唱几秒，再来回放', icon: 'none' })
+      return
+    }
+    this.stopDemo()
+    const waitForRecorder = this.recorderActive || this.recorderStarting
+    this.pendingRecordingPlayback = waitForRecorder
+    this.recordingRequested = false
+    this.stopElapsedTimer()
+    this.setData({ paused: true, recording: false, demoPlaying: false, feedback: '正在准备本次录音…', feedbackType: 'demo' })
+    this.stopRecorder()
+    if (!waitForRecorder) this.startRecordingPlayback()
+  },
+  startRecordingPlayback() {
+    if (!this.data.hasRecording || this.recordedSampleCount < 1) return
+    this.destroyRecordingPlayer()
+    const wav = this.buildRecordingWav()
+    const duration = this.recordedSampleCount / RECORD_SAMPLE_RATE
+    const chartWidthRpx = this.chartWidthForDuration(duration * 1000)
+    const filePath = `${wx.env.USER_DATA_PATH}/leta-practice-preview.wav`
+    this.setData({ recordingPlayback: true, playbackSeconds: 0, playbackDuration: Math.ceil(duration), playbackProgress: 0, pitchHistory: [], pitchSegments: [], pitchDots: [], chartHasSignal: false, currentNote: '--', pitch: '--', cents: 0, feedback: '正在准备录音回放…', feedbackType: 'demo', chartWidthRpx, chartScrollLeft: 0, chartFollowLatest: true })
+    wx.getFileSystemManager().writeFile({
+      filePath,
+      data: wav,
+      success: () => {
+        if (!this.data.recordingPlayback) return
+        const player = wx.createInnerAudioContext()
+        this.recordingPlayer = player
+        player.autoplay = true
+        player.obeyMuteSwitch = false
+        player.onPlay(() => {
+          if (this.recordingPlayer !== player) return
+          this.setData({ feedback: '正在回放，你唱过的音高会依次出现', feedbackType: 'demo' })
+        })
+        player.onTimeUpdate(() => {
+          if (this.recordingPlayer === player) this.updateRecordingPlayback(player.currentTime)
+        })
+        player.onEnded(() => {
+          if (this.recordingPlayer !== player) return
+          this.updateRecordingPlayback(duration)
+          this.destroyRecordingPlayer()
+          this.setData({ recordingPlayback: false, playbackSeconds: Math.ceil(duration), playbackProgress: 100, inputLevel: 0, feedback: '回放结束，可以继续录音', feedbackType: 'idle' })
+        })
+        player.onError((error) => {
+          if (this.recordingPlayer !== player) return
+          console.error('播放练习录音失败', error)
+          this.destroyRecordingPlayer()
+          this.setData({ recordingPlayback: false, inputLevel: 0, feedback: '录音回放失败，请重试', feedbackType: 'error' })
+        })
+        player.src = filePath
+      },
+      fail: (error) => {
+        console.error('保存练习录音失败', error)
+        this.setData({ recordingPlayback: false, inputLevel: 0, feedback: '录音准备失败，请重试', feedbackType: 'error' })
+      },
+    })
+  },
+  updateRecordingPlayback(currentTime: number) {
+    const duration = Math.max(0.001, this.recordedSampleCount / RECORD_SAMPLE_RATE)
+    const currentMs = Math.max(0, Math.min(duration, currentTime)) * 1000
+    const playbackProgress = Math.min(100, currentMs / (duration * 1000) * 100)
+    const visibleFrames = this.recordedPitchFrames.filter((frame) => frame.at <= currentMs)
+    const chartWidthRpx = this.chartWidthForDuration(duration * 1000)
+    const visual = this.buildRecordedPitchVisual(visibleFrames, duration * 1000, chartWidthRpx)
+    const chartScrollLeft = this.data.chartFollowLatest ? this.chartScrollForPosition(chartWidthRpx, playbackProgress / 100) : this.data.chartScrollLeft
+    const currentFrame = visibleFrames.length ? visibleFrames[visibleFrames.length - 1] : null
+    let detectedFrame: RecordedPitchFrame | null = null
+    for (let index = visibleFrames.length - 1; index >= 0; index--) {
+      if (visibleFrames[index].frequency > 0) { detectedFrame = visibleFrames[index]; break }
+    }
+    const hasCurrentPitch = !!detectedFrame && currentMs - detectedFrame.at < 650
+    if (!hasCurrentPitch || !detectedFrame) {
+      this.setData({ playbackSeconds: Math.floor(currentMs / 1000), playbackProgress, inputLevel: currentFrame ? currentFrame.level : 0, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: visual.segments.length > 0 || visual.dots.length > 0, currentNote: '--', pitch: '--', cents: 0, chartWidthRpx, chartScrollLeft })
+      return
+    }
+    const targetMidi = this.closestTargetMidi(detectedFrame.frequency)
+    const target = 440 * Math.pow(2, (targetMidi - 69) / 12)
+    const cents = Math.round(1200 * Math.log(detectedFrame.frequency / target) / Math.log(2))
+    this.setData({ playbackSeconds: Math.floor(currentMs / 1000), playbackProgress, inputLevel: currentFrame ? currentFrame.level : 0, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detectedFrame.frequency), targetNote: this.midiToNote(targetMidi), pitch: `${detectedFrame.frequency.toFixed(1)} Hz`, cents, chartWidthRpx, chartScrollLeft })
+  },
+  buildRecordedPitchVisual(frames: RecordedPitchFrame[], durationMs: number, chartWidthRpx = CHART_VIEW_WIDTH_RPX): { segments: PitchSegment[]; dots: PitchDot[] } {
+    const detected = frames.filter((frame) => frame.frequency > 0)
+    const step = Math.max(1, Math.ceil(detected.length / 180))
+    const sampled = detected.filter((_frame, index) => index % step === 0 || index === detected.length - 1)
+    const points = sampled.map((frame) => ({ at: frame.at, left: 0.3 + frame.at / Math.max(1, durationMs) * 99.4, top: this.midiToChartTop(69 + 12 * Math.log(frame.frequency / 440) / Math.log(2)) }))
+    const segments: PitchSegment[] = []
+    for (let index = 1; index < points.length; index++) {
+      const previous = points[index - 1]
+      const current = points[index]
+      if (current.at - previous.at > 650) continue
+      const dx = current.left - previous.left
+      const dy = (current.top - previous.top) * CHART_HEIGHT_RPX / chartWidthRpx
+      segments.push({ key: index, left: previous.left, top: previous.top, width: Math.sqrt(dx * dx + dy * dy), angle: Math.atan2(dy, dx) * 180 / Math.PI })
+    }
+    return { segments, dots: points.length ? [points[points.length - 1]] : [] }
+  },
+  buildRecordingWav() {
+    const dataBytes = this.recordedSampleCount * 2
+    const buffer = new ArrayBuffer(44 + dataBytes)
+    const view = new DataView(buffer)
+    const writeText = (offset: number, text: string) => {
+      for (let index = 0; index < text.length; index++) view.setUint8(offset + index, text.charCodeAt(index))
+    }
+    writeText(0, 'RIFF')
+    view.setUint32(4, 36 + dataBytes, true)
+    writeText(8, 'WAVE')
+    writeText(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, 1, true)
+    view.setUint32(24, RECORD_SAMPLE_RATE, true)
+    view.setUint32(28, RECORD_SAMPLE_RATE * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    writeText(36, 'data')
+    view.setUint32(40, dataBytes, true)
+    const output = new Int16Array(buffer, 44, this.recordedSampleCount)
+    let offset = 0
+    this.recordedPcmChunks.forEach((chunk) => { output.set(chunk, offset); offset += chunk.length })
+    return buffer
+  },
+  stopRecordingPlayback(showFeedback: boolean) {
+    const wasPlaying = this.data.recordingPlayback
+    this.pendingRecordingPlayback = false
+    this.destroyRecordingPlayer()
+    if (!wasPlaying) return
+    this.setData({ recordingPlayback: false, inputLevel: 0, feedback: showFeedback ? '已停止回放，点击继续录音可以接着唱' : this.data.feedback, feedbackType: showFeedback ? 'idle' : this.data.feedbackType })
+  },
+  destroyRecordingPlayer() {
+    const player = this.recordingPlayer
+    this.recordingPlayer = null
+    if (!player) return
     try {
-      const content = wx.getFileSystemManager().readFileSync(filePath)
-      if (!(content instanceof ArrayBuffer)) throw new Error('录音文件不是二进制数据')
-      const parsed = this.parseWav(content)
-      if (!parsed) throw new Error('无法读取 WAV 录音数据')
-      this.analyzeSamples(parsed.samples, parsed.sampleRate)
+      player.stop()
+      player.destroy()
     } catch (error) {
-      console.error('分析录音片段失败', error)
-      this.setData({ feedback: '录音已收到，但音高分析失败，请重试', feedbackType: 'error' })
+      console.error('关闭练习录音播放器失败', error)
     }
   },
   parseWav(buffer: ArrayBuffer): { samples: Int16Array; sampleRate: number } | null {
@@ -347,13 +679,14 @@ Page({
     }
     return null
   },
-  analyzeSamples(samples: Int16Array, sampleRate: number) {
+  analyzeSamples(samples: Int16Array, sampleRate: number, recordedAt: number | null = null) {
     let sum = 0
     for (let i = 0; i < samples.length; i += 4) sum += samples[i] * samples[i]
     const rms = Math.sqrt(sum / Math.max(1, Math.ceil(samples.length / 4))) / 32768
     const inputLevel = Math.min(100, Math.round(rms * 900))
     const waveformBars = this.buildWaveformBars(samples)
     const detected = this.detectPitch(samples, sampleRate)
+    if (recordedAt !== null) this.recordedPitchFrames.push({ at: recordedAt, frequency: detected, level: inputLevel })
     if (detected) {
       this.detectedFrameCount++
       if (this.recordingWatchdog) clearTimeout(this.recordingWatchdog)
@@ -362,8 +695,12 @@ Page({
       const target = 440 * Math.pow(2, (targetMidi - 69) / 12)
       const cents = Math.round(1200 * Math.log(detected / target) / Math.log(2))
       const history = this.data.pitchHistory.slice(-119).concat([detected])
-      const visual = this.buildPitchVisual(history)
-      this.setData({ frameCount: this.data.frameCount + 1, inputLevel, waveformBars, pitchHistory: history, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detected), targetNote: this.midiToNote(targetMidi), pitch: `${detected.toFixed(1)} Hz`, cents, feedback: Math.abs(cents) <= 20 ? '音准稳定，保持住' : cents < 0 ? `偏低 ${Math.abs(cents)} cents，再高一点` : `偏高 ${cents} cents，再低一点`, feedbackType: Math.abs(cents) <= 20 ? 'good' : 'off' })
+      const chartDurationMs = Math.max(CHART_VIEW_SECONDS * 1000, recordedAt || this.data.seconds * 1000)
+      const chartWidthRpx = this.chartWidthForDuration(chartDurationMs)
+      const visual = this.buildRecordedPitchVisual(this.recordedPitchFrames, chartDurationMs, chartWidthRpx)
+      const chartScrollLeft = this.data.chartFollowLatest ? this.chartScrollForPosition(chartWidthRpx, 1) : this.data.chartScrollLeft
+      const inTune = Math.abs(cents) <= 20
+      this.setData({ frameCount: this.data.frameCount + 1, voicedFrames: this.data.voicedFrames + 1, inTuneFrames: this.data.inTuneFrames + (inTune ? 1 : 0), inputLevel, waveformBars, pitchHistory: history, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detected), targetNote: this.midiToNote(targetMidi), pitch: `${detected.toFixed(1)} Hz`, cents, feedback: this.pitchFeedback(cents), feedbackType: inTune ? 'good' : 'off', chartWidthRpx, chartScrollLeft })
     } else this.setData({ frameCount: this.data.frameCount + 1, inputLevel, waveformBars, feedback: rms > 0.008 ? '声音进来了，正在定位音高' : '请靠近麦克风唱出持续音', feedbackType: rms > 0.008 ? 'listening' : 'idle' })
   },
   toInt16Samples(frame: any): Int16Array | null {
@@ -423,6 +760,51 @@ Page({
       lines.push({ label: this.midiToNote(midi), top: this.midiToChartTop(midi), major: pitchClass === 0 })
     }
     return lines
+  },
+  buildTargetGuides(): TargetGuide[] {
+    const rootMidi = this.noteToMidi(this.data.initialNote)
+    const offsets = this.data.mode === 'scale' ? MAJOR_SCALE_OFFSETS : [0]
+    return offsets.map((offset, index) => {
+      const midi = rootMidi + offset
+      return { label: this.midiToNote(midi), top: this.midiToChartTop(midi), stagger: index % 2 === 1 }
+    })
+  },
+  chartWidthForDuration(durationMs: number) {
+    return Math.max(CHART_VIEW_WIDTH_RPX, Math.ceil(durationMs / (CHART_VIEW_SECONDS * 1000) * CHART_VIEW_WIDTH_RPX))
+  },
+  chartScrollForPosition(chartWidthRpx: number, progress: number) {
+    const cursorRpx = chartWidthRpx * Math.max(0, Math.min(1, progress))
+    const maxScrollRpx = Math.max(0, chartWidthRpx - CHART_VIEW_WIDTH_RPX)
+    const desiredRpx = Math.max(0, cursorRpx - CHART_VIEW_WIDTH_RPX * 0.78)
+    return this.rpxToPx(Math.min(maxScrollRpx, desiredRpx))
+  },
+  rpxToPx(rpx: number) {
+    const wxApi = wx as any
+    const info = typeof wxApi.getWindowInfo === 'function' ? wxApi.getWindowInfo() : wx.getSystemInfoSync()
+    return Math.round(rpx * info.windowWidth / 750)
+  },
+  onChartTouchStart(event: any) {
+    const touch = event.touches && event.touches[0]
+    this.chartTouchStartX = touch ? touch.clientX : null
+  },
+  onChartTouchMove(event: any) {
+    if (this.chartTouchStartX === null || !this.data.chartFollowLatest || this.data.chartWidthRpx <= CHART_VIEW_WIDTH_RPX) return
+    const touch = event.touches && event.touches[0]
+    if (!touch || Math.abs(touch.clientX - this.chartTouchStartX) < 8) return
+    this.setData({ chartFollowLatest: false })
+  },
+  onChartScroll(event: any) {
+    if (event.detail && typeof event.detail.scrollLeft === 'number') this.chartCurrentScrollLeft = event.detail.scrollLeft
+  },
+  onChartTouchEnd() {
+    this.chartTouchStartX = null
+    if (!this.data.chartFollowLatest && Math.abs(this.data.chartScrollLeft - this.chartCurrentScrollLeft) > 1) {
+      this.setData({ chartScrollLeft: this.chartCurrentScrollLeft })
+    }
+  },
+  followLatestPitch() {
+    const progress = this.data.recordingPlayback ? this.data.playbackProgress / 100 : 1
+    this.setData({ chartFollowLatest: true, chartScrollLeft: this.chartScrollForPosition(this.data.chartWidthRpx, progress) })
   },
   buildPitchVisual(history: number[]): { segments: PitchSegment[]; dots: PitchDot[] } {
     const visible = history.slice(-80)
@@ -492,13 +874,62 @@ Page({
     const refinedLag = denominator === 0 ? selectedLag : selectedLag + 0.5 * (left - right) / denominator
     return refinedLag > 0 ? sampleRate / refinedLag : 0
   },
-  noteToHz(note: string) { const match = /^([A-G])([1-6])$/.exec(note); if (!match) return 261.63; const semitones: any = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }; const midi = (Number(match[2]) + 1) * 12 + semitones[match[1]]; return 440 * Math.pow(2, (midi - 69) / 12) },
-  noteToMidi(note: string) { const match = /^([A-G])([1-6])$/.exec(note); if (!match) return 48; const semitones: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }; return (Number(match[2]) + 1) * 12 + semitones[match[1]] },
+  pitchFeedback(cents: number) {
+    const inTune = Math.abs(cents) <= 20
+    if (this.feedbackMode === '少提示') return inTune ? '稳定' : cents < 0 ? '偏低' : '偏高'
+    if (this.feedbackMode === '直接') return inTune ? '音准稳定' : cents < 0 ? `偏低 ${Math.abs(cents)} cents` : `偏高 ${cents} cents`
+    return inTune ? '音准稳定，保持住' : cents < 0 ? `偏低 ${Math.abs(cents)} cents，再高一点` : `偏高 ${cents} cents，再低一点`
+  },
+  noteToHz(note: string) { const midi = this.noteToMidi(note); return 440 * Math.pow(2, (midi - 69) / 12) },
+  noteToMidi(note: string) { const match = /^([A-G])(♯|#)?([1-6])$/.exec(note); if (!match) return 48; const semitones: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }; return (Number(match[3]) + 1) * 12 + semitones[match[1]] + (match[2] ? 1 : 0) },
   midiToNote(midi: number) { const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B']; const rounded = Math.round(midi); return `${names[((rounded % 12) + 12) % 12]}${Math.floor(rounded / 12) - 1}` },
   hzToNote(hz: number) { return this.midiToNote(69 + 12 * Math.log(hz / 440) / Math.log(2)) },
-  finish() { this.recordingRequested = false; this.stopRecorder(); this.stopElapsedTimer(); const old = wx.getStorageSync('leta-stats') || {}; const today = new Date().toDateString(); this.setData({ finished: true, started: false, recording: false, feedback: '练习结束，做得很好' }); wx.setStorageSync('leta-stats', { ...old, practiceMinutes: (old.practiceMinutes || 0) + Math.max(1, Math.round(this.data.seconds / 60)), practiceDays: old.lastPracticeDay === today ? (old.practiceDays || 0) : (old.practiceDays || 0) + 1, lastPracticeDay: today }) },
-  pause() { if (this.data.paused) { this.recordingRequested = true; this.setData({ paused: false, feedback: '正在监听，请唱出当前音符' }); this.startRecorder(); return } this.recordingRequested = false; this.stopRecorder(); this.stopElapsedTimer(); this.setData({ paused: true, recording: false, feedback: '先休息一下，准备好再继续', feedbackType: 'idle' }) },
-  goBack() { this.recordingRequested = false; this.stopRecorder(); wx.navigateBack() },
-  goHome() { wx.navigateBack() },
-  restart() { this.setData({ finished: false, progress: 0, seconds: 0 }); this.start() },
+  finish() {
+    this.resumeRecordingAfterDemo = false
+    this.pendingRecordingPlayback = false
+    this.stopRecordingPlayback(false)
+    this.stopDemo()
+    this.recordingRequested = false
+    this.stopRecorder()
+    this.stopElapsedTimer()
+    const old = wx.getStorageSync('leta-stats') || {}
+    const today = new Date().toDateString()
+    const steadyPercent = this.data.voicedFrames > 0 ? Math.round(this.data.inTuneFrames / this.data.voicedFrames * 100) : 0
+    this.setData({ finished: true, started: false, recording: false, recordingPlayback: false, demoPlaying: false, steadyPercent, feedback: '练习结束，做得很好' })
+    wx.setStorageSync('leta-stats', { ...old, practiceMinutes: (old.practiceMinutes || 0) + Math.max(1, Math.round(this.data.seconds / 60)), practiceDays: old.lastPracticeDay === today ? (old.practiceDays || 0) : (old.practiceDays || 0) + 1, lastPracticeDay: today })
+  },
+  pause() {
+    if (this.data.recordingPlayback) this.stopRecordingPlayback(false)
+    if (this.data.demoPlaying) {
+      this.resumeRecordingAfterDemo = false
+      this.stopDemo()
+      this.setData({ demoPlaying: false })
+    }
+    if (this.data.paused) {
+      this.recordingRequested = true
+      this.setData({ paused: false, feedback: '正在监听，请唱出当前音符', feedbackType: 'listening' })
+      this.startRecorder()
+      return
+    }
+    this.recordingRequested = false
+    this.stopRecorder()
+    this.stopElapsedTimer()
+    this.setData({ paused: true, recording: false, feedback: '先休息一下，准备好再继续', feedbackType: 'idle' })
+  },
+  restartPractice() {
+    this.resumeRecordingAfterDemo = false
+    this.pendingRecordingPlayback = false
+    this.stopRecordingPlayback(false)
+    this.stopDemo()
+    const waitForRecorder = this.recorderActive || this.recorderStarting
+    this.pendingPracticeRestart = waitForRecorder
+    this.recordingRequested = false
+    this.stopElapsedTimer()
+    this.setData({ paused: false, recording: false, demoPlaying: false, feedback: '正在重新开始…', feedbackType: 'listening' })
+    this.stopRecorder()
+    if (!waitForRecorder) this.beginPractice()
+  },
+  goBack() { this.pendingRecordingPlayback = false; this.stopRecordingPlayback(false); this.recordingRequested = false; this.stopRecorder(); wx.navigateBack() },
+  goHome() { this.stopRecordingPlayback(false); wx.navigateBack() },
+  restart() { this.stopRecordingPlayback(false); this.setData({ finished: false, progress: 0, seconds: 0 }); this.start() },
 })
