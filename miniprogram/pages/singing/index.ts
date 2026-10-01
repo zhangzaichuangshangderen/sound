@@ -1,4 +1,5 @@
 import { createRecorderSession, createSequentialProgressTracker } from '../../utils/audio-session'
+import { createPianoTone } from '../../utils/note-synth'
 
 const RECORD_SAMPLE_RATE = 16000
 const MAX_PLAYBACK_SECONDS = 180
@@ -197,24 +198,8 @@ Page({
       this.demoSources = []
       scaleOffsets.forEach((offset: number, noteIndex: number) => {
         const frequency = 440 * Math.pow(2, (rootMidi + offset - 69) / 12)
-        const harmonics = frequency < 130
-          ? [[1, 0.24], [2, 0.42], [3, 0.22], [4, 0.10]]
-          : [[1, 0.55], [2, 0.20], [3, 0.09], [4, 0.04]]
         const startTime = now + noteIndex * beatSeconds
-        harmonics.forEach((item: number[]) => {
-          const oscillator = ctx.createOscillator()
-          const gain = ctx.createGain()
-          oscillator.type = 'sine'
-          oscillator.frequency.value = frequency * item[0]
-          gain.gain.setValueAtTime(0.0001, startTime)
-          gain.gain.exponentialRampToValueAtTime(item[1], startTime + 0.012)
-          gain.gain.exponentialRampToValueAtTime(0.0001, startTime + noteDuration)
-          oscillator.connect(gain)
-          gain.connect(ctx.destination)
-          oscillator.start(startTime)
-          oscillator.stop(startTime + noteDuration + 0.02)
-          this.demoSources.push(oscillator)
-        })
+        this.demoSources.push(...createPianoTone(ctx, frequency, startTime, noteDuration))
       })
       const totalDuration = (scaleOffsets.length - 1) * beatSeconds + noteDuration
       const description = scaleDemo ? `${rootNote} 大调音阶` : `${rootNote} 范音`

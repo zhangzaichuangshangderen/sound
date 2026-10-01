@@ -19,6 +19,11 @@
           <view class="single-note-copy"><text>单音模唱</text><text>专注一个目标音，更容易找到位置</text></view>
           <view class="chevron" aria-hidden="true"></view>
         </button>
+        <button class="single-note-card ear-training-card" bindtap="startEarTraining" hover-class="card-pressed" aria-label="开始听音小游戏">
+          <view class="ear-training-icon" aria-hidden="true"><view></view><view></view><view></view></view>
+          <view class="single-note-copy"><text>听音小游戏</text><text>听一个音，选出完整音高</text></view>
+          <view class="chevron" aria-hidden="true"></view>
+        </button>
       </view>
     </view>
 

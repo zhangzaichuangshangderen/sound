@@ -190,6 +190,12 @@
   text-align: left;
   transition: opacity 180ms ease, transform 180ms ease;
 }
+.ear-training-card { background: linear-gradient(145deg, #fff 0%, var(--leta-theory-soft) 100%); }
+.ear-training-icon { position: relative; display: flex; align-items: center; justify-content: center; flex: none; width: 72rpx; height: 72rpx; border-radius: 22rpx; background: #fff; }
+.ear-training-icon view { width: 7rpx; margin: 0 4rpx; border-radius: 99rpx; background: var(--leta-primary); }
+.ear-training-icon view:nth-child(1) { height: 20rpx; }
+.ear-training-icon view:nth-child(2) { height: 38rpx; }
+.ear-training-icon view:nth-child(3) { height: 26rpx; }
 
 .secondary-actions > .single-note-card,
 .secondary-actions > .tip-card {

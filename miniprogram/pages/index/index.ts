@@ -2,7 +2,7 @@ import { createRecorderSession, normalizeBpm, prepareAudioContext } from '../../
 
 type TabKey = 'sing' | 'instrument' | 'theory' | 'practice' | 'me'
 
-let metronomeTimer: ReturnType<typeof setInterval> | null = null
+let metronomeTimer: ReturnType<typeof setTimeout> | null = null
 let countInTimer: ReturnType<typeof setInterval> | null = null
 let rhythmTimers: Array<ReturnType<typeof setTimeout>> = []
 let metronomeContext: any = null
@@ -11,7 +11,8 @@ let recorderSession: ReturnType<typeof createRecorderSession> | null = null
 
 const METRONOME_RECORD_MAX_DURATION_MS = 180000
 const METRONOME_SAMPLE_RATE = 22050
-const METRONOME_CLICK_DURATION_MS = 80
+const METRONOME_CLICK_FULL_DURATION_MS = 72
+const METRONOME_CLICK_SHORT_DURATION_MS = 28
 const METRONOME_TONE_CONFIG: Record<string, { type: 'sine' | 'square' | 'triangle'; high: number; low: number }> = {
   classic: { type: 'sine', high: 1120, low: 760 },
   wood: { type: 'square', high: 880, low: 620 },
@@ -40,9 +41,9 @@ const metronomeRecordingState = {
   player: null as WechatMiniprogram.InnerAudioContext | null,
 }
 
-function createMetronomeClickWav(tone: keyof typeof METRONOME_TONE_CONFIG, accent: boolean) {
+function createMetronomeClickWav(tone: keyof typeof METRONOME_TONE_CONFIG, accent: boolean, durationMs: number) {
   const definition = METRONOME_TONE_CONFIG[tone]
-  const sampleCount = Math.round(METRONOME_SAMPLE_RATE * METRONOME_CLICK_DURATION_MS / 1000)
+  const sampleCount = Math.round(METRONOME_SAMPLE_RATE * durationMs / 1000)
   const wav = new ArrayBuffer(44 + sampleCount * 2)
   const view = new DataView(wav)
   const writeText = (offset: number, value: string) => {
@@ -93,11 +94,14 @@ function prepareMetronomeClickFiles() {
   const wxAudio = wx as any
   const userDataPath = wxAudio.env && wxAudio.env.USER_DATA_PATH
   if (!userDataPath) return Promise.reject(new Error('当前环境不支持本地音频缓存'))
-  const entries = Object.keys(METRONOME_TONE_CONFIG).flatMap((tone) => [true, false].map((accent) => ({
-    key: `${tone}-${accent ? 'accent' : 'regular'}`,
-    filePath: `${userDataPath}/leta-metronome-${tone}-${accent ? 'accent' : 'regular'}.wav`,
-    data: createMetronomeClickWav(tone, accent),
-  })))
+  const entries = Object.keys(METRONOME_TONE_CONFIG).flatMap((tone) => [true, false].flatMap((accent) => [
+    { profile: 'full', durationMs: METRONOME_CLICK_FULL_DURATION_MS },
+    { profile: 'short', durationMs: METRONOME_CLICK_SHORT_DURATION_MS },
+  ].map(({ profile, durationMs }) => ({
+    key: `${tone}-${accent ? 'accent' : 'regular'}-${profile}`,
+    filePath: `${userDataPath}/leta-metronome-v3-${tone}-${accent ? 'accent' : 'regular'}-${profile}.wav`,
+    data: createMetronomeClickWav(tone, accent, durationMs),
+  }))))
   metronomeClickPreparation = Promise.all(entries.map((entry) => writeLocalAudioFile(entry.filePath, entry.data)))
     .then(() => {
       metronomeClickPaths = entries.reduce((paths, entry) => ({ ...paths, [entry.key]: entry.filePath }), {})
@@ -232,6 +236,7 @@ Component({
     },
     startSinging() { this.stopMetronome(); wx.navigateTo({ url: '../singing/index?mode=scale' }) },
     startSingle() { this.stopMetronome(); wx.navigateTo({ url: '../singing/index?mode=single' }) },
+    startEarTraining() { this.stopMetronome(); wx.navigateTo({ url: '../ear-training/index' }) },
     openMetronome() {
       const app = getApp<IAppOption>() as any
       app.globalData.openMetronomeRoute = true
@@ -324,12 +329,19 @@ Component({
     },
     beginMetronome() {
       this.setData({ countInActive: false, countInCountdown: 0, metronomePlaying: true, beat: 0 })
+      this.runMetronomeTick(Date.now())
+    },
+    runMetronomeTick(scheduledAt: number) {
+      if (!this.data.metronomePlaying) return
       this.tickMetronome()
-      metronomeTimer = setInterval(() => this.tickMetronome(), 60000 / this.data.bpm)
+      const interval = 60000 / this.data.bpm
+      const now = Date.now()
+      const nextScheduledAt = scheduledAt + interval > now ? scheduledAt + interval : now + interval
+      metronomeTimer = setTimeout(() => this.runMetronomeTick(nextScheduledAt), Math.max(0, nextScheduledAt - Date.now()))
     },
     stopMetronome(keepRecording = false) {
       metronomeStartToken++
-      if (metronomeTimer) clearInterval(metronomeTimer)
+      if (metronomeTimer) clearTimeout(metronomeTimer)
       if (countInTimer) clearInterval(countInTimer)
       this.clearRhythmTimers()
       metronomeTimer = null
@@ -358,16 +370,20 @@ Component({
       const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
       if (subdivisions < 2 || !this.data.metronomePlaying) return
       const beatDuration = 60000 / this.data.bpm
+      const playbackToken = metronomeStartToken
       for (let index = 1; index < subdivisions; index++) {
         const timer = setTimeout(() => {
-          if (this.data.metronomePlaying) this.playMetronomeTone(false)
+          if (playbackToken === metronomeStartToken && this.data.metronomePlaying) this.playMetronomeTone(false)
         }, Math.round(beatDuration * index / subdivisions))
         rhythmTimers.push(timer)
       }
     },
     playMetronomeTone(accent: boolean, countIn = false) {
       if (metronomeSoundMode === 'file') {
-        const key = `${this.data.metronomeTone}-${accent ? 'accent' : 'regular'}`
+        const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
+        const subdivisionDuration = 60000 / this.data.bpm / subdivisions
+        const profile = subdivisionDuration < 92 ? 'short' : 'full'
+        const key = `${this.data.metronomeTone}-${accent ? 'accent' : 'regular'}-${profile}`
         const source = metronomeClickPaths && metronomeClickPaths[key]
         if (!source) {
           console.error('未找到节拍器本地音频', { key })
@@ -401,6 +417,9 @@ Component({
         }
         const tone = toneMap[this.data.metronomeTone] || toneMap.classic
         const now = metronomeContext.currentTime
+        const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
+        const maxDuration = 60000 / this.data.bpm / subdivisions * 0.65 / 1000
+        const duration = Math.min(tone.duration, maxDuration)
         const oscillator = metronomeContext.createOscillator()
         const gain = metronomeContext.createGain()
         oscillator.type = tone.type
@@ -408,11 +427,11 @@ Component({
         const volume = Math.max(0, Math.min(1, this.data.metronomeVolume / 100))
         const baseLevel = accent ? 0.24 : 0.13
         gain.gain.setValueAtTime(Math.max(0.0001, baseLevel * tone.level * volume * (countIn ? 0.82 : 1)), now)
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + tone.duration)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
         oscillator.connect(gain)
         gain.connect(metronomeContext.destination)
         oscillator.start(now)
-        oscillator.stop(now + tone.duration + 0.01)
+        oscillator.stop(now + duration + 0.01)
       } catch (error) {
         console.error('节拍器发声失败', error)
         if (metronomeContext && metronomeContext.close) {
@@ -428,7 +447,10 @@ Component({
       const bpm = normalizeBpm(e.detail.value)
       this.setData({ bpm, pendulumDuration: Math.round(60000 / bpm) })
     },
-    commitBpm() { this.restartMetronomeWithoutCountIn() },
+    commitBpm(e: any) {
+      const bpm = normalizeBpm(e && e.detail ? e.detail.value : this.data.bpm)
+      this.setData({ bpm, pendulumDuration: Math.round(60000 / bpm) }, () => this.restartMetronomeWithoutCountIn())
+    },
     selectTimeSignature(e: any) {
       const beats = Number(e.currentTarget.dataset.beats)
       const label = String(e.currentTarget.dataset.label)
