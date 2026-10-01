@@ -4,6 +4,7 @@ type TabKey = 'sing' | 'instrument' | 'theory' | 'practice' | 'me'
 
 let metronomeTimer: ReturnType<typeof setInterval> | null = null
 let countInTimer: ReturnType<typeof setInterval> | null = null
+let rhythmTimers: Array<ReturnType<typeof setTimeout>> = []
 let metronomeContext: any = null
 let metronomeStartToken = 0
 let recorderSession: ReturnType<typeof createRecorderSession> | null = null
@@ -15,6 +16,12 @@ const METRONOME_TONE_CONFIG: Record<string, { type: 'sine' | 'square' | 'triangl
   classic: { type: 'sine', high: 1120, low: 760 },
   wood: { type: 'square', high: 880, low: 620 },
   soft: { type: 'triangle', high: 720, low: 520 },
+}
+const RHYTHM_SUBDIVISIONS: Record<string, number> = {
+  off: 1,
+  eighth: 2,
+  triplet: 3,
+  sixteenth: 4,
 }
 let metronomeClickPaths: Record<string, string> | null = null
 let metronomeClickPreparation: Promise<Record<string, string>> | null = null
@@ -133,6 +140,12 @@ Component({
       { label: '4/4', beats: 4 },
       { label: '6/8', beats: 6 },
     ],
+    rhythmOptions: [
+      { key: 'off', symbol: 'OFF', ariaLabel: '关闭节奏细分' },
+      { key: 'eighth', symbol: '♪', ariaLabel: '八分音符细分' },
+      { key: 'triplet', symbol: '♩³', ariaLabel: '三连音细分' },
+      { key: 'sixteenth', symbol: '♬', ariaLabel: '十六分音符细分' },
+    ],
     toneOptions: [
       { key: 'classic', label: '清脆' },
       { key: 'wood', label: '木质' },
@@ -148,6 +161,7 @@ Component({
     beat: 0,
     beatsPerMeasure: 4,
     timeSignature: '4/4',
+    metronomeRhythm: 'off',
     metronomeTone: 'classic',
     metronomeVolume: 70,
     pendulumDuration: 750,
@@ -317,6 +331,7 @@ Component({
       metronomeStartToken++
       if (metronomeTimer) clearInterval(metronomeTimer)
       if (countInTimer) clearInterval(countInTimer)
+      this.clearRhythmTimers()
       metronomeTimer = null
       countInTimer = null
       this.setData({ metronomePlaying: false, metronomeStarting: false, countInActive: false, countInCountdown: 0, beat: 0 })
@@ -332,6 +347,23 @@ Component({
       this.setData({ beat })
       if (beat === 1) wx.vibrateShort({ type: 'light' })
       this.playMetronomeTone(beat === 1)
+      this.scheduleRhythmSubdivisions()
+    },
+    clearRhythmTimers() {
+      rhythmTimers.forEach((timer) => clearTimeout(timer))
+      rhythmTimers = []
+    },
+    scheduleRhythmSubdivisions() {
+      this.clearRhythmTimers()
+      const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
+      if (subdivisions < 2 || !this.data.metronomePlaying) return
+      const beatDuration = 60000 / this.data.bpm
+      for (let index = 1; index < subdivisions; index++) {
+        const timer = setTimeout(() => {
+          if (this.data.metronomePlaying) this.playMetronomeTone(false)
+        }, Math.round(beatDuration * index / subdivisions))
+        rhythmTimers.push(timer)
+      }
     },
     playMetronomeTone(accent: boolean, countIn = false) {
       if (metronomeSoundMode === 'file') {
@@ -402,6 +434,12 @@ Component({
       const label = String(e.currentTarget.dataset.label)
       if (!Number.isFinite(beats) || beats < 1) return
       this.setData({ timeSignature: label, beatsPerMeasure: beats, beatOptions: Array.from({ length: beats }, (_, index) => index + 1) })
+      this.restartMetronomeWithoutCountIn()
+    },
+    selectRhythm(e: any) {
+      const rhythm = String(e.currentTarget.dataset.rhythm)
+      if (!Object.prototype.hasOwnProperty.call(RHYTHM_SUBDIVISIONS, rhythm)) return
+      this.setData({ metronomeRhythm: rhythm })
       this.restartMetronomeWithoutCountIn()
     },
     selectTone(e: any) { this.setData({ metronomeTone: String(e.currentTarget.dataset.tone) }) },

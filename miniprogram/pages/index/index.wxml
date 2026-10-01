@@ -103,28 +103,38 @@
 
         <view class="metronome-settings-card">
           <view class="control-group first">
-            <text class="control-label">拍号</text>
+            <view class="control-label-row"><text class="control-label">拍子</text><text>每小节几拍</text></view>
             <view class="segment-control signature-control">
               <button wx:for="{{timeSignatures}}" wx:key="label" class="segment-button {{timeSignature === item.label ? 'selected' : ''}}" data-label="{{item.label}}" data-beats="{{item.beats}}" bindtap="selectTimeSignature" hover-class="segment-pressed">{{item.label}}</button>
             </view>
           </view>
 
           <view class="control-group">
-            <text class="control-label">节拍音色</text>
-            <view class="segment-control tone-control">
-              <button wx:for="{{toneOptions}}" wx:key="key" class="segment-button {{metronomeTone === item.key ? 'selected' : ''}}" data-tone="{{item.key}}" bindtap="selectTone" hover-class="segment-pressed">{{item.label}}</button>
+            <view class="control-label-row"><text class="control-label">节奏</text><text>细分提示</text></view>
+            <view class="segment-control rhythm-control">
+              <button wx:for="{{rhythmOptions}}" wx:key="key" class="segment-button rhythm-button {{metronomeRhythm === item.key ? 'selected' : ''}}" data-rhythm="{{item.key}}" bindtap="selectRhythm" hover-class="segment-pressed" aria-label="{{item.ariaLabel}}">{{item.symbol}}</button>
             </view>
           </view>
 
-          <view class="control-row">
-            <view class="control-copy"><text class="control-label">节拍音量</text><text class="control-value">{{metronomeVolume}}%</text></view>
-            <slider class="volume-slider" min="0" max="100" step="1" value="{{metronomeVolume}}" activeColor="#9A7FB8" backgroundColor="#E8E0EB" block-color="#FFFFFF" block-size="22" bindchanging="changeVolume" bindchange="changeVolume" aria-label="调节节拍音量"></slider>
-          </view>
+          <view class="metronome-secondary-settings">
+            <text class="secondary-settings-title">声音设置</text>
+            <view class="control-group sound-group">
+              <text class="control-label">节拍音色</text>
+              <view class="segment-control tone-control">
+                <button wx:for="{{toneOptions}}" wx:key="key" class="segment-button {{metronomeTone === item.key ? 'selected' : ''}}" data-tone="{{item.key}}" bindtap="selectTone" hover-class="segment-pressed">{{item.label}}</button>
+              </view>
+            </view>
 
-          <button class="count-in-row" bindtap="toggleCountIn" hover-class="setting-pressed" aria-label="{{countInEnabled ? '关闭预备拍' : '开启预备拍'}}">
-            <view class="count-in-copy"><text>预备拍</text><text>开始前先倒数一小节</text></view>
-            <view class="toggle {{countInEnabled ? 'on' : ''}}"><view></view></view>
-          </button>
+            <view class="control-row">
+              <view class="control-copy"><text class="control-label">节拍音量</text><text class="control-value">{{metronomeVolume}}%</text></view>
+              <slider class="volume-slider" min="0" max="100" step="1" value="{{metronomeVolume}}" activeColor="#9A7FB8" backgroundColor="#E8E0EB" block-color="#FFFFFF" block-size="22" bindchanging="changeVolume" bindchange="changeVolume" aria-label="调节节拍音量"></slider>
+            </view>
+
+            <button class="count-in-row" bindtap="toggleCountIn" hover-class="setting-pressed" aria-label="{{countInEnabled ? '关闭预备拍' : '开启预备拍'}}">
+              <view class="count-in-copy"><text>预备拍</text><text>开始前先倒数一小节</text></view>
+              <view class="toggle {{countInEnabled ? 'on' : ''}}"><view></view></view>
+            </button>
+          </view>
         </view>
       </block>
     </view>

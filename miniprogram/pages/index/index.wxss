@@ -369,11 +369,18 @@
 
 .control-group { margin-top: 26rpx; text-align: left; }
 .control-group.first { margin-top: 0; }
+.control-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16rpx; }
+.control-label-row > text:last-child { color: var(--leta-text-secondary); font-size: 21rpx; }
 .control-label { display: block; color: var(--leta-text); font-size: 25rpx; font-weight: 650; }
 .segment-control { display: flex; gap: 8rpx; margin-top: 14rpx; padding: 7rpx; border-radius: 22rpx; background: var(--leta-surface-soft); }
 .segment-button { flex: 1; min-width: 0; min-height: 72rpx; padding: 0 6rpx; border: 0; border-radius: 17rpx; background: transparent; color: var(--leta-text-secondary); font-size: 24rpx; }
+.rhythm-button { font-family: "Times New Roman", serif; font-size: 34rpx; font-weight: 650; line-height: 1; }
+.rhythm-button:first-child { font-family: inherit; font-size: 20rpx; letter-spacing: .5rpx; }
 .segment-button.selected { background: #fff; color: var(--leta-primary); font-weight: 700; box-shadow: 0 4rpx 12rpx rgba(68,57,74,.1); }
 .segment-pressed { opacity: 0.65; }
+.metronome-secondary-settings { margin-top: 28rpx; padding-top: 26rpx; border-top: 2rpx dashed #e5dce9; }
+.secondary-settings-title { display: block; color: var(--leta-text-secondary); font-size: 21rpx; font-weight: 650; letter-spacing: 1rpx; }
+.sound-group { margin-top: 18rpx; }
 .control-row { margin-top: 28rpx; text-align: left; }
 .control-copy { display: flex; align-items: center; justify-content: space-between; }
 .control-value { color: var(--leta-primary); font-size: 23rpx; font-weight: 650; font-variant-numeric: tabular-nums; }
