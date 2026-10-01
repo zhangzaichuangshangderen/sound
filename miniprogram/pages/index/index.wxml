@@ -24,11 +24,6 @@
 
     <view wx:if="{{activeTab === 'instrument'}}" id="instrument" class="page-content">
       <block wx:if="{{instrumentView === 'home'}}">
-        <view class="instrument-home-heading">
-          <text class="instrument-home-title">乐器</text>
-          <text class="instrument-home-subtitle">练习工具</text>
-        </view>
-
         <button class="instrument-tool-card" bindtap="openMetronome" hover-class="card-pressed" aria-label="打开节拍器">
           <view class="instrument-card-main">
             <view class="instrument-tool-copy">
@@ -50,12 +45,6 @@
       </block>
 
       <block wx:else>
-        <view class="metronome-detail-heading">
-          <button class="detail-back" bindtap="backToInstrumentHome" hover-class="round-pressed" aria-label="返回乐器工具"><view></view></button>
-          <text>节拍器</text>
-          <view class="detail-heading-spacer"></view>
-        </view>
-
         <view class="metronome-stage-card">
           <view class="stage-spark spark-left" aria-hidden="true">✦</view>
           <view class="stage-spark spark-right" aria-hidden="true">✦</view>
@@ -91,6 +80,25 @@
             <view class="{{metronomePlaying || countInActive || metronomeStarting ? 'stop-shape' : 'play-shape'}}"></view>
           </button>
           <text class="play-status">{{metronomeStarting ? '正在准备声音…' : (countInActive ? '预备 ' + countInCountdown : (metronomePlaying ? '正在播放 · 第 ' + beat + ' 拍' : '点击开始'))}}</text>
+        </view>
+
+        <view class="metronome-record-card">
+          <view class="record-card-heading">
+            <view><text>跟着节拍录一次</text><text>录下练习，回放时听听自己的节奏</text></view>
+            <text class="record-limit">最长 3 分钟</text>
+          </view>
+          <view wx:if="{{metronomeRecording || metronomeRecordStarting}}" class="metronome-recording-state" aria-live="polite"><view></view><text>{{metronomeRecordStarting ? '正在打开麦克风…' : '正在录音'}} · {{metronomeRecordingSeconds}}s</text></view>
+          <button class="metronome-record-button {{metronomeRecording || metronomeRecordStarting ? 'recording' : ''}}" bindtap="toggleMetronomeRecording" hover-class="record-pressed" aria-label="{{metronomeRecording || metronomeRecordStarting ? '停止节拍器练习录音' : '开始节拍器练习录音'}}">
+            <view class="{{metronomeRecording || metronomeRecordStarting ? 'record-stop-shape' : 'record-start-shape'}}"></view>
+            <text>{{metronomeRecordPreparing ? '正在准备麦克风…' : (metronomeRecording || metronomeRecordStarting ? '停止录音' : '开始录音')}}</text>
+          </button>
+          <button wx:if="{{metronomeHasRecording}}" class="metronome-playback-button {{metronomePlayback ? 'playing' : ''}}" bindtap="toggleMetronomeRecordingPlayback" hover-class="record-pressed" aria-label="{{metronomePlayback ? '停止录音回放' : '回放本次节拍练习'}}">
+            <view class="{{metronomePlayback ? 'record-stop-shape small' : 'record-play-shape'}}"></view>
+            <text>{{metronomePlayback ? '停止回放' : '回放本次录音'}}</text>
+            <text>{{metronomePlayback ? metronomePlaybackSeconds + ' / ' + metronomePlaybackDuration + ' 秒' : metronomeRecordingSeconds + ' 秒'}}</text>
+          </button>
+          <progress wx:if="{{metronomeHasRecording}}" class="metronome-playback-progress" percent="{{metronomePlaybackProgress}}" show-info="{{false}}" activeColor="#86689F" backgroundColor="#E5DCE9" border-radius="99"></progress>
+          <text class="record-help">建议佩戴耳机录音，能更清楚听见自己的节奏。</text>
         </view>
 
         <view class="metronome-settings-card">

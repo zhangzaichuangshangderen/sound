@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { createRecorderSession, normalizeBpm, prepareAudioContext } = require('../miniprogram/utils/audio-session')
+const { createRecorderSession, createSequentialProgressTracker, normalizeBpm, prepareAudioContext } = require('../miniprogram/utils/audio-session')
 
 function createRecorderMock() {
   const handlers = {}
@@ -12,6 +12,8 @@ function createRecorderMock() {
     onStop(callback) { handlers.stop = callback },
     onError(callback) { handlers.error = callback },
     onFrameRecorded(callback) { handlers.frame = callback },
+    start(options) { handlers.startOptions = options },
+    stop() {},
   }
 }
 
@@ -39,7 +41,7 @@ test('录音管理器只注册一次监听，并把第二次录音交给最新�
 
   assert.deepEqual(firstEvents, ['start', 'first-track'])
   assert.deepEqual(secondEvents, ['start', 'second-track'])
-  assert.equal(Object.keys(recorder.handlers).length, 4)
+  assert.deepEqual(Object.keys(recorder.handlers).sort(), ['error', 'frame', 'start', 'stop'])
 })
 
 test('已离开的录音页面不会再收到全局录音事件', () => {
@@ -58,6 +60,31 @@ test('已离开的录音页面不会再收到全局录音事件', () => {
   recorder.handlers.frame({ frameBuffer: 'stale-track' })
   recorder.handlers.stop()
   assert.equal(starts, 1)
+})
+
+test('同一个录音管理器在不同页面复用同一会话，避免重复注册监听', () => {
+  const recorder = createRecorderMock()
+  const firstSession = createRecorderSession(recorder)
+  const secondSession = createRecorderSession(recorder)
+  assert.equal(firstSession, secondSession)
+  firstSession.attach({ handleRecorderStarted() {}, handleRecorderStop() {}, handleRecorderError() {}, handleAudioFrame() {} })
+  assert.deepEqual(Object.keys(recorder.handlers).sort(), ['error', 'frame', 'start', 'stop'])
+})
+
+test('全局录音器停止前不允许新的页面并发启动，并在空闲后通知重试', () => {
+  const recorder = createRecorderMock()
+  const session = createRecorderSession(recorder)
+  const first = { handleRecorderStarted() {}, handleRecorderStop() {}, handleRecorderError() {}, handleAudioFrame() {} }
+  const second = { handleRecorderStarted() {}, handleRecorderStop() {}, handleRecorderError() {}, handleAudioFrame() {} }
+  assert.equal(session.start(first, { format: 'mp3' }), true)
+  assert.equal(session.isBusy(), true)
+  assert.equal(session.start(second, { format: 'mp3' }), false)
+  let becameIdle = false
+  session.whenIdle(() => { becameIdle = true })
+  recorder.handlers.stop({ tempFilePath: 'recording.mp3' })
+  assert.equal(session.isBusy(), false)
+  assert.equal(becameIdle, true)
+  assert.equal(session.start(second, { format: 'mp3' }), true)
 })
 
 test('节拍器等待音频上下文恢复后才返回可播放状态', async () => {
@@ -101,4 +128,19 @@ test('BPM 按 10 为单位并限制在 40 到 320', () => {
   assert.equal(normalizeBpm(86), 90)
   assert.equal(normalizeBpm(316), 320)
   assert.equal(normalizeBpm(500), 320)
+})
+
+test('音阶目标需要连续稳定达到阈值才按顺序推进', () => {
+  const tracker = createSequentialProgressTracker(8, 500)
+  assert.deepEqual(tracker.observe(true, 240), { index: 0, advanced: false, completed: false })
+  assert.deepEqual(tracker.observe(false, 100), { index: 0, advanced: false, completed: false })
+  assert.deepEqual(tracker.observe(true, 300), { index: 0, advanced: false, completed: false })
+  assert.deepEqual(tracker.observe(true, 200), { index: 1, advanced: true, completed: false })
+})
+
+test('音阶目标完成最后一个音后不会越过末尾', () => {
+  const tracker = createSequentialProgressTracker(2, 100)
+  assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: true, completed: false })
+  assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: false, completed: true })
+  assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: false, completed: true })
 })

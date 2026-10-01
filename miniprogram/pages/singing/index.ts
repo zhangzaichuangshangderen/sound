@@ -1,4 +1,4 @@
-import { createRecorderSession } from '../../utils/audio-session'
+import { createRecorderSession, createSequentialProgressTracker } from '../../utils/audio-session'
 
 const RECORD_SAMPLE_RATE = 16000
 const MAX_PLAYBACK_SECONDS = 180
@@ -6,12 +6,13 @@ const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12]
 const CHART_VIEW_SECONDS = 8
 const CHART_VIEW_WIDTH_RPX = 670
 const CHART_HEIGHT_RPX = 560
+const SCALE_TARGET_HOLD_MS = 500
 
 type ChartLine = { label: string; top: number; major: boolean }
 type TargetGuide = { label: string; top: number; stagger: boolean }
 type PitchSegment = { key: number; left: number; top: number; width: number; angle: number }
 type PitchDot = { left: number; top: number }
-type RecordedPitchFrame = { at: number; frequency: number; level: number }
+type RecordedPitchFrame = { at: number; frequency: number; level: number; targetMidi: number }
 
 let recorderSession: ReturnType<typeof createRecorderSession> | null = null
 
@@ -29,6 +30,9 @@ Page({
     mode: 'scale',
     modeTitle: '音阶跟练',
     modeSubtitle: '先听一个音，再唱给乐搭听。',
+    scaleStep: 1,
+    scaleStepTotal: MAJOR_SCALE_OFFSETS.length,
+    scaleCompleted: false,
     pitchHistory: [] as number[],
     chartLines: [] as ChartLine[],
     targetGuides: [] as TargetGuide[],
@@ -72,6 +76,7 @@ Page({
   chartMaxMidi: 72,
   chartTouchStartX: null as number | null,
   chartCurrentScrollLeft: 0,
+  scaleProgress: createSequentialProgressTracker(MAJOR_SCALE_OFFSETS.length, SCALE_TARGET_HOLD_MS),
   feedbackMode: '温和' as '温和' | '直接' | '少提示',
   onLoad(options: any) {
     const single = options && options.mode === 'single'
@@ -306,9 +311,10 @@ Page({
     this.wavFailureCount = 0
     this.detectedFrameCount = 0
     this.chartCurrentScrollLeft = 0
+    this.scaleProgress.reset()
     const chartLines = this.buildChartLines()
     const targetGuides = this.buildTargetGuides()
-    this.setData({ starting: false, started: true, finished: false, paused: false, recording: false, recordingPlayback: false, hasRecording: false, playbackSeconds: 0, playbackDuration: 0, playbackProgress: 0, feedback: '正在启动麦克风…', feedbackType: 'listening', progress: 0, seconds: 0, frameCount: 0, voicedFrames: 0, inTuneFrames: 0, steadyPercent: 0, pitchHistory: [], pitchSegments: [], pitchDots: [], waveformBars: [], chartHasSignal: false, inputLevel: 0, currentNote: '--', targetNote: this.data.initialNote, pitch: '--', cents: 0, chartLines, targetGuides, chartWidthRpx: CHART_VIEW_WIDTH_RPX, chartScrollLeft: 0, chartFollowLatest: true })
+    this.setData({ starting: false, started: true, finished: false, paused: false, recording: false, recordingPlayback: false, hasRecording: false, playbackSeconds: 0, playbackDuration: 0, playbackProgress: 0, feedback: '正在启动麦克风…', feedbackType: 'listening', progress: 0, seconds: 0, frameCount: 0, voicedFrames: 0, inTuneFrames: 0, steadyPercent: 0, pitchHistory: [], pitchSegments: [], pitchDots: [], waveformBars: [], chartHasSignal: false, inputLevel: 0, currentNote: '--', targetNote: this.data.initialNote, pitch: '--', cents: 0, scaleStep: 1, scaleCompleted: false, chartLines, targetGuides, chartWidthRpx: CHART_VIEW_WIDTH_RPX, chartScrollLeft: 0, chartFollowLatest: true })
     this.startRecorder()
   },
   handleRecorderStarted() {
@@ -342,10 +348,25 @@ Page({
     this.detectedFrameCountAtRecorderStart = this.detectedFrameCount
     this.recorderStarting = true
     try {
+      if (!recorderSession) throw new Error('录音管理器不可用')
       if (this.activeRecorderMode === 'pcm') {
-        this.recorder.start({ duration: 600000, sampleRate: RECORD_SAMPLE_RATE, numberOfChannels: 1, format: 'PCM', frameSize: 4 })
+        if (!recorderSession.start(this, { duration: 600000, sampleRate: RECORD_SAMPLE_RATE, numberOfChannels: 1, format: 'PCM', frameSize: 4 })) {
+          this.recorderStarting = false
+          this.setData({ recording: false, feedback: '上一段录音正在结束，请稍后重试', feedbackType: 'listening' })
+          recorderSession.whenIdle(() => {
+            if (this.recordingRequested && !this.data.paused) setTimeout(() => this.startRecorder(), 120)
+          })
+          return
+        }
       } else {
-        this.recorder.start({ duration: 1000, sampleRate: RECORD_SAMPLE_RATE, numberOfChannels: 1, format: 'wav' })
+        if (!recorderSession.start(this, { duration: 1000, sampleRate: RECORD_SAMPLE_RATE, numberOfChannels: 1, format: 'wav' })) {
+          this.recorderStarting = false
+          this.setData({ recording: false, feedback: '上一段录音正在结束，请稍后重试', feedbackType: 'listening' })
+          recorderSession.whenIdle(() => {
+            if (this.recordingRequested && !this.data.paused) setTimeout(() => this.startRecorder(), 120)
+          })
+          return
+        }
       }
       if (this.recordingWatchdog) clearTimeout(this.recordingWatchdog)
       if (this.activeRecorderMode === 'pcm') {
@@ -596,7 +617,7 @@ Page({
       this.setData({ playbackSeconds: Math.floor(currentMs / 1000), playbackProgress, inputLevel: currentFrame ? currentFrame.level : 0, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: visual.segments.length > 0 || visual.dots.length > 0, currentNote: '--', pitch: '--', cents: 0, chartWidthRpx, chartScrollLeft })
       return
     }
-    const targetMidi = this.closestTargetMidi(detectedFrame.frequency)
+    const targetMidi = detectedFrame.targetMidi
     const target = 440 * Math.pow(2, (targetMidi - 69) / 12)
     const cents = Math.round(1200 * Math.log(detectedFrame.frequency / target) / Math.log(2))
     this.setData({ playbackSeconds: Math.floor(currentMs / 1000), playbackProgress, inputLevel: currentFrame ? currentFrame.level : 0, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detectedFrame.frequency), targetNote: this.midiToNote(targetMidi), pitch: `${detectedFrame.frequency.toFixed(1)} Hz`, cents, chartWidthRpx, chartScrollLeft })
@@ -690,12 +711,14 @@ Page({
     const inputLevel = Math.min(100, Math.round(rms * 900))
     const waveformBars = this.buildWaveformBars(samples)
     const detected = this.detectPitch(samples, sampleRate)
-    if (recordedAt !== null) this.recordedPitchFrames.push({ at: recordedAt, frequency: detected, level: inputLevel })
+    const targetIndex = this.data.mode === 'scale' ? this.scaleProgress.currentIndex() : 0
+    const targetMidi = this.currentTargetMidi()
+    const analyzedDurationMs = samples.length / Math.max(1, sampleRate) * 1000
+    if (recordedAt !== null) this.recordedPitchFrames.push({ at: recordedAt, frequency: detected, level: inputLevel, targetMidi })
     if (detected) {
       this.detectedFrameCount++
       if (this.recordingWatchdog) clearTimeout(this.recordingWatchdog)
       this.recordingWatchdog = 0
-      const targetMidi = this.closestTargetMidi(detected)
       const target = 440 * Math.pow(2, (targetMidi - 69) / 12)
       const cents = Math.round(1200 * Math.log(detected / target) / Math.log(2))
       const history = this.data.pitchHistory.slice(-119).concat([detected])
@@ -704,8 +727,15 @@ Page({
       const visual = this.buildRecordedPitchVisual(this.recordedPitchFrames, chartDurationMs, chartWidthRpx)
       const chartScrollLeft = this.data.chartFollowLatest ? this.chartScrollForPosition(chartWidthRpx, 1) : this.data.chartScrollLeft
       const inTune = Math.abs(cents) <= 20
-      this.setData({ frameCount: this.data.frameCount + 1, voicedFrames: this.data.voicedFrames + 1, inTuneFrames: this.data.inTuneFrames + (inTune ? 1 : 0), inputLevel, waveformBars, pitchHistory: history, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detected), targetNote: this.midiToNote(targetMidi), pitch: `${detected.toFixed(1)} Hz`, cents, feedback: this.pitchFeedback(cents), feedbackType: inTune ? 'good' : 'off', chartWidthRpx, chartScrollLeft })
-    } else this.setData({ frameCount: this.data.frameCount + 1, inputLevel, waveformBars, feedback: rms > 0.008 ? '声音进来了，正在定位音高' : '请靠近麦克风唱出持续音', feedbackType: rms > 0.008 ? 'listening' : 'idle' })
+      const scaleResult = this.data.mode === 'scale' ? this.scaleProgress.observe(inTune, analyzedDurationMs) : null
+      let feedback = this.pitchFeedback(cents)
+      if (scaleResult && scaleResult.advanced) feedback = `很好，接下来唱 ${this.midiToNote(this.currentTargetMidi())}`
+      if (scaleResult && scaleResult.completed && inTune) feedback = '完整音阶唱完了，保持得很好'
+      this.setData({ frameCount: this.data.frameCount + 1, voicedFrames: this.data.voicedFrames + 1, inTuneFrames: this.data.inTuneFrames + (inTune ? 1 : 0), inputLevel, waveformBars, pitchHistory: history, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detected), targetNote: this.midiToNote(targetMidi), pitch: `${detected.toFixed(1)} Hz`, cents, feedback, feedbackType: inTune ? 'good' : 'off', scaleStep: targetIndex + 1, scaleCompleted: !!(scaleResult && scaleResult.completed), chartWidthRpx, chartScrollLeft })
+    } else {
+      if (this.data.mode === 'scale') this.scaleProgress.observe(false, analyzedDurationMs)
+      this.setData({ frameCount: this.data.frameCount + 1, inputLevel, waveformBars, targetNote: this.midiToNote(targetMidi), scaleStep: targetIndex + 1, feedback: rms > 0.008 ? '声音进来了，正在定位音高' : '请靠近麦克风唱出持续音', feedbackType: rms > 0.008 ? 'listening' : 'idle' })
+    }
   },
   toInt16Samples(frame: any): Int16Array | null {
     try {
@@ -830,11 +860,10 @@ Page({
     const bounded = Math.max(this.chartMinMidi, Math.min(this.chartMaxMidi, midi))
     return 4 + (this.chartMaxMidi - bounded) / (this.chartMaxMidi - this.chartMinMidi) * 92
   },
-  closestTargetMidi(hz: number) {
-    const sungMidi = 69 + 12 * Math.log(hz / 440) / Math.log(2)
+  currentTargetMidi() {
     const rootMidi = this.noteToMidi(this.data.initialNote)
-    const targets = this.data.mode === 'scale' ? MAJOR_SCALE_OFFSETS.map((offset) => rootMidi + offset) : [rootMidi]
-    return targets.reduce((closest, candidate) => Math.abs(candidate - sungMidi) < Math.abs(closest - sungMidi) ? candidate : closest, targets[0])
+    if (this.data.mode !== 'scale') return rootMidi
+    return rootMidi + MAJOR_SCALE_OFFSETS[this.scaleProgress.currentIndex()]
   },
   detectPitch(samples: Int16Array, sampleRate = RECORD_SAMPLE_RATE) {
     const minLag = Math.max(2, Math.floor(sampleRate / 1100))

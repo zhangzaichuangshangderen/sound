@@ -53,7 +53,7 @@
         </view>
         <view class="comparison-divider"><view></view></view>
         <view class="note-reading-cell target-reading">
-          <text class="reading-caption">当前目标</text>
+          <text class="reading-caption">{{mode === 'scale' ? '当前目标 · ' + scaleStep + '/' + scaleStepTotal : '当前目标'}}</text>
           <text class="target-note-value">{{targetNote}}</text>
         </view>
       </view>
