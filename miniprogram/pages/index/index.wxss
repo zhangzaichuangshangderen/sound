@@ -375,6 +375,15 @@
 .progress-number { color: #805c12; font-variant-numeric: tabular-nums; }
 .progress-track { height: 18rpx; margin-top: 24rpx; border-radius: 999rpx; background: rgba(68, 57, 74, 0.12); overflow: hidden; }
 .progress-value { height: 100%; border-radius: inherit; background: var(--leta-theory); }
+.progress-level-0 { width: 0; }
+.progress-level-1 { width: 12.5%; }
+.progress-level-2 { width: 25%; }
+.progress-level-3 { width: 37.5%; }
+.progress-level-4 { width: 50%; }
+.progress-level-5 { width: 62.5%; }
+.progress-level-6 { width: 75%; }
+.progress-level-7 { width: 87.5%; }
+.progress-level-8 { width: 100%; }
 
 .course-card { min-height: 128rpx; }
 .course-number { display: flex; align-items: center; justify-content: center; flex: none; width: 72rpx; height: 72rpx; border-radius: 22rpx; background: var(--leta-theory-soft); color: #805c12; font-size: 26rpx; font-weight: 700; }

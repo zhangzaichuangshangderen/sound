@@ -1,3 +1,5 @@
+import { createRecorderSession } from '../../utils/audio-session'
+
 const RECORD_SAMPLE_RATE = 16000
 const MAX_PLAYBACK_SECONDS = 180
 const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12]
@@ -10,6 +12,8 @@ type TargetGuide = { label: string; top: number; stagger: boolean }
 type PitchSegment = { key: number; left: number; top: number; width: number; angle: number }
 type PitchDot = { left: number; top: number }
 type RecordedPitchFrame = { at: number; frequency: number; level: number }
+
+let recorderSession: ReturnType<typeof createRecorderSession> | null = null
 
 Page({
   data: {
@@ -76,7 +80,8 @@ Page({
     wx.setNavigationBarTitle({ title: modeTitle })
     const storedFeedbackMode = wx.getStorageSync('leta-feedback-mode')
     if (storedFeedbackMode === '直接' || storedFeedbackMode === '少提示') this.feedbackMode = storedFeedbackMode
-    this.recorder = wx.getRecorderManager()
+    if (!recorderSession) recorderSession = createRecorderSession(wx.getRecorderManager())
+    this.recorder = recorderSession.attach(this)
     wx.setInnerAudioOption({
       obeyMuteSwitch: false,
       speakerOn: true,
@@ -89,32 +94,6 @@ Page({
         console.error('设置音频输出失败', error)
       },
     })
-    this.recorder.onStart(() => {
-      this.recorderStarting = false
-      if (!this.recordingRequested || this.data.paused) {
-        try { this.recorder.stop() } catch (error) { console.error('停止过期录音失败', error) }
-        return
-      }
-      this.recorderActive = true
-      this.startElapsedTimer()
-      this.setData({ recording: true, feedback: '正在监听，请唱出当前音符', feedbackType: 'listening' })
-    })
-    this.recorder.onStop((result: any) => this.handleRecorderStop(result))
-    this.recorder.onError((error: any) => {
-      this.recorderActive = false
-      this.recorderStarting = false
-      console.error('录音失败', error)
-      if (this.activeRecorderMode === 'pcm' && this.recordingRequested) {
-        this.captureMode = 'wav'
-        this.setData({ feedback: '正在切换兼容录音模式…', feedbackType: 'listening' })
-        setTimeout(() => this.startRecorder(), 80)
-        return
-      }
-      this.recordingRequested = false
-      this.stopElapsedTimer()
-      this.setData({ recording: false, feedback: '没有检测到录音，请检查麦克风权限', feedbackType: 'error' })
-    })
-    this.recorder.onFrameRecorded((res: any) => this.handleAudioFrame(res.frameBuffer))
   },
   onUnload() {
     this.resumeRecordingAfterDemo = false
@@ -126,6 +105,7 @@ Page({
     this.stopElapsedTimer()
     this.stopDemo()
     if (this.recordingWatchdog) clearTimeout(this.recordingWatchdog)
+    if (recorderSession) recorderSession.detach(this)
   },
   onHide() {
     const wasPracticeDemo = this.data.started && this.data.demoPlaying
@@ -330,6 +310,30 @@ Page({
     const targetGuides = this.buildTargetGuides()
     this.setData({ starting: false, started: true, finished: false, paused: false, recording: false, recordingPlayback: false, hasRecording: false, playbackSeconds: 0, playbackDuration: 0, playbackProgress: 0, feedback: '正在启动麦克风…', feedbackType: 'listening', progress: 0, seconds: 0, frameCount: 0, voicedFrames: 0, inTuneFrames: 0, steadyPercent: 0, pitchHistory: [], pitchSegments: [], pitchDots: [], waveformBars: [], chartHasSignal: false, inputLevel: 0, currentNote: '--', targetNote: this.data.initialNote, pitch: '--', cents: 0, chartLines, targetGuides, chartWidthRpx: CHART_VIEW_WIDTH_RPX, chartScrollLeft: 0, chartFollowLatest: true })
     this.startRecorder()
+  },
+  handleRecorderStarted() {
+    this.recorderStarting = false
+    if (!this.recordingRequested || this.data.paused) {
+      try { this.recorder.stop() } catch (error) { console.error('停止过期录音失败', error) }
+      return
+    }
+    this.recorderActive = true
+    this.startElapsedTimer()
+    this.setData({ recording: true, feedback: '正在监听，请唱出当前音符', feedbackType: 'listening' })
+  },
+  handleRecorderError(error: any) {
+    this.recorderActive = false
+    this.recorderStarting = false
+    console.error('录音失败', error)
+    if (this.activeRecorderMode === 'pcm' && this.recordingRequested) {
+      this.captureMode = 'wav'
+      this.setData({ feedback: '正在切换兼容录音模式…', feedbackType: 'listening' })
+      setTimeout(() => this.startRecorder(), 80)
+      return
+    }
+    this.recordingRequested = false
+    this.stopElapsedTimer()
+    this.setData({ recording: false, feedback: '没有检测到录音，请检查麦克风权限', feedbackType: 'error' })
   },
   startRecorder() {
     if (!this.recordingRequested || this.recorderActive || this.recorderStarting) return

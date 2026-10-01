@@ -1,8 +1,11 @@
+import { normalizeBpm, prepareAudioContext } from '../../utils/audio-session'
+
 type TabKey = 'sing' | 'instrument' | 'theory' | 'practice' | 'me'
 
 let metronomeTimer: ReturnType<typeof setInterval> | null = null
 let countInTimer: ReturnType<typeof setInterval> | null = null
 let metronomeContext: any = null
+let metronomeStartToken = 0
 
 Component({
   data: {
@@ -29,6 +32,7 @@ Component({
     ],
     theoryProgress: 2,
     metronomePlaying: false,
+    metronomeStarting: false,
     countInActive: false,
     countInEnabled: true,
     countInCountdown: 0,
@@ -46,8 +50,6 @@ Component({
   lifetimes: {
     attached() {
       this.loadStats()
-      const wxAudio = wx as any
-      metronomeContext = typeof wxAudio.createWebAudioContext === 'function' ? wxAudio.createWebAudioContext() : null
     },
     detached() { this.stopMetronome(); if (metronomeContext && metronomeContext.close) metronomeContext.close(); metronomeContext = null },
   },
@@ -56,7 +58,15 @@ Component({
     hide() { this.stopMetronome() },
   },
   methods: {
-    loadStats() { const stats = wx.getStorageSync('leta-stats') || {}; const feedbackMode = wx.getStorageSync('leta-feedback-mode') || '温和'; this.setData({ practiceMinutes: stats.practiceMinutes || 0, practiceDays: stats.practiceDays || 0, theoryProgress: stats.theoryProgress || 2, feedbackMode }) },
+    loadStats() {
+      const stats = wx.getStorageSync('leta-stats') || {}
+      const feedbackMode = wx.getStorageSync('leta-feedback-mode') || '温和'
+      const storedTheoryProgress = Number(stats.theoryProgress)
+      const theoryProgress = Number.isFinite(storedTheoryProgress)
+        ? Math.max(0, Math.min(8, Math.round(storedTheoryProgress)))
+        : 2
+      this.setData({ practiceMinutes: stats.practiceMinutes || 0, practiceDays: stats.practiceDays || 0, theoryProgress, feedbackMode })
+    },
     switchTab(e: any) {
       const key = e.currentTarget.dataset.key as TabKey
       if (key === 'theory' || key === 'practice' || key === 'me') {
@@ -71,29 +81,38 @@ Component({
     openMetronome() { this.setData({ activeTab: 'instrument', instrumentView: 'metronome' }) },
     backToInstrumentHome() { this.stopMetronome(); this.setData({ instrumentView: 'home' }) },
     openTheory() { this.setData({ activeTab: 'theory' }) },
-    toggleMetronome() { this.data.metronomePlaying || this.data.countInActive ? this.stopMetronome() : this.startMetronome() },
-    resumeMetronomeContext() {
-      if (!metronomeContext) {
-        const wxAudio = wx as any
-        metronomeContext = typeof wxAudio.createWebAudioContext === 'function' ? wxAudio.createWebAudioContext() : null
-      }
-      if (!metronomeContext) {
-        wx.showToast({ title: '当前微信版本不支持节拍器声音', icon: 'none' })
-        return false
-      }
-      if (!metronomeContext.resume) return true
-      const resumeResult = metronomeContext.resume()
-      if (resumeResult && typeof resumeResult.catch === 'function') resumeResult.catch((error: any) => console.error('节拍器音频启动失败', error))
-      return true
-    },
+    toggleMetronome() { this.data.metronomePlaying || this.data.countInActive || this.data.metronomeStarting ? this.stopMetronome() : this.startMetronome() },
     startMetronome() {
       this.stopMetronome()
-      if (!this.resumeMetronomeContext()) return
-      if (this.data.countInEnabled) {
-        this.startCountIn()
-        return
-      }
-      this.beginMetronome()
+      this.startMetronomeAfterAudioReady(this.data.countInEnabled)
+    },
+    startMetronomeAfterAudioReady(includeCountIn: boolean) {
+      const token = ++metronomeStartToken
+      const wxAudio = wx as any
+      let createdContext: any = null
+      this.setData({ metronomeStarting: true })
+      prepareAudioContext(metronomeContext, () => {
+        createdContext = typeof wxAudio.createWebAudioContext === 'function' ? wxAudio.createWebAudioContext() : null
+        return createdContext
+      })
+        .then((context: any) => {
+          if (token !== metronomeStartToken) {
+            if (createdContext === context && context.close) context.close()
+            return
+          }
+          metronomeContext = context
+          this.setData({ metronomeStarting: false })
+          if (includeCountIn) this.startCountIn()
+          else this.beginMetronome()
+        })
+        .catch((error: any) => {
+          if (createdContext && createdContext.close) createdContext.close()
+          if (token !== metronomeStartToken) return
+          console.error('节拍器音频启动失败', error)
+          metronomeContext = null
+          this.setData({ metronomeStarting: false, metronomePlaying: false, countInActive: false })
+          wx.showToast({ title: '节拍器声音启动失败，请重试', icon: 'none' })
+        })
     },
     startCountIn() {
       let remaining = this.data.beatsPerMeasure
@@ -118,19 +137,17 @@ Component({
       metronomeTimer = setInterval(() => this.tickMetronome(), 60000 / this.data.bpm)
     },
     stopMetronome() {
+      metronomeStartToken++
       if (metronomeTimer) clearInterval(metronomeTimer)
       if (countInTimer) clearInterval(countInTimer)
       metronomeTimer = null
       countInTimer = null
-      this.setData({ metronomePlaying: false, countInActive: false, countInCountdown: 0, beat: 0 })
+      this.setData({ metronomePlaying: false, metronomeStarting: false, countInActive: false, countInCountdown: 0, beat: 0 })
     },
     restartMetronomeWithoutCountIn() {
-      const shouldRestart = this.data.metronomePlaying || this.data.countInActive
+      const shouldRestart = this.data.metronomePlaying || this.data.countInActive || this.data.metronomeStarting
       this.stopMetronome()
-      if (shouldRestart) {
-        if (!this.resumeMetronomeContext()) return
-        this.beginMetronome()
-      }
+      if (shouldRestart) this.startMetronomeAfterAudioReady(false)
     },
     tickMetronome() {
       const beat = this.data.beat % this.data.beatsPerMeasure + 1
@@ -162,12 +179,17 @@ Component({
         oscillator.stop(now + tone.duration + 0.01)
       } catch (error) {
         console.error('节拍器发声失败', error)
+        if (metronomeContext && metronomeContext.close) {
+          const closeResult = metronomeContext.close()
+          if (closeResult && typeof closeResult.catch === 'function') closeResult.catch((closeError: any) => console.error('关闭异常音频上下文失败', closeError))
+        }
+        metronomeContext = null
         this.stopMetronome()
         wx.showToast({ title: '节拍器声音启动失败', icon: 'none' })
       }
     },
     changeBpmFromSlider(e: any) {
-      const bpm = Number(e.detail.value)
+      const bpm = normalizeBpm(e.detail.value)
       this.setData({ bpm, pendulumDuration: Math.round(60000 / bpm) })
     },
     commitBpm() { this.restartMetronomeWithoutCountIn() },

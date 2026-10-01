@@ -79,7 +79,7 @@
           </view>
           <view class="tempo-slider-row">
             <text>慢</text>
-            <slider class="bpm-slider" min="40" max="240" step="1" value="{{bpm}}" activeColor="#9A7FB8" backgroundColor="#E8E0EB" block-color="#FFFFFF" block-size="24" bindchanging="changeBpmFromSlider" bindchange="commitBpm" aria-label="调节节拍速度"></slider>
+            <slider class="bpm-slider" min="40" max="320" step="10" value="{{bpm}}" activeColor="#9A7FB8" backgroundColor="#E8E0EB" block-color="#FFFFFF" block-size="24" bindchanging="changeBpmFromSlider" bindchange="commitBpm" aria-label="调节节拍速度，范围 40 到 320 BPM，每次 10 BPM"></slider>
             <text>快</text>
           </view>
 
@@ -87,10 +87,10 @@
             <view wx:for="{{beatOptions}}" wx:key="*this" class="beat-dot {{beat === item ? 'active' : ''}} {{item === 1 ? 'accent' : ''}}"></view>
           </view>
 
-          <button class="metronome-play" bindtap="toggleMetronome" hover-class="round-pressed" aria-label="{{metronomePlaying || countInActive ? '暂停节拍器' : '启动节拍器'}}">
-            <view class="{{metronomePlaying || countInActive ? 'stop-shape' : 'play-shape'}}"></view>
+          <button class="metronome-play" bindtap="toggleMetronome" hover-class="round-pressed" aria-label="{{metronomePlaying || countInActive || metronomeStarting ? '暂停节拍器' : '启动节拍器'}}">
+            <view class="{{metronomePlaying || countInActive || metronomeStarting ? 'stop-shape' : 'play-shape'}}"></view>
           </button>
-          <text class="play-status">{{countInActive ? '预备 ' + countInCountdown : (metronomePlaying ? '正在播放 · 第 ' + beat + ' 拍' : '点击开始')}}</text>
+          <text class="play-status">{{metronomeStarting ? '正在准备声音…' : (countInActive ? '预备 ' + countInCountdown : (metronomePlaying ? '正在播放 · 第 ' + beat + ' 拍' : '点击开始'))}}</text>
         </view>
 
         <view class="metronome-settings-card">
@@ -132,7 +132,7 @@
 
       <view class="progress-card">
         <view class="progress-row"><text>我的学习进度</text><text class="progress-number">{{theoryProgress}} / 8</text></view>
-        <view class="progress-track" aria-label="乐理课程完成 {{theoryProgress}} 节，共 8 节"><view class="progress-value" style="width: {{theoryProgress / 8 * 100}}%;"></view></view>
+        <view class="progress-track" aria-label="乐理课程完成 {{theoryProgress}} 节，共 8 节"><view class="progress-value progress-level-{{theoryProgress}}"></view></view>
         <button class="primary-button compact" bindtap="continueLesson" hover-class="is-pressed">继续学习</button>
       </view>
 

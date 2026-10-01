@@ -10,26 +10,29 @@
 
     <view class="setup-card">
       <text class="label">选择组别</text>
-      <scroll-view class="note-scroll" scroll-x>
-        <view class="note-row">
-          <button wx:for="{{octaveOptions}}" wx:key="*this" class="note-choice {{selectedOctave === item ? 'selected' : ''}}" data-octave="{{item}}" bindtap="chooseOctave" hover-class="note-pressed" aria-label="选择第 {{item}} 组">第{{item}}组</button>
-        </view>
-      </scroll-view>
-
-      <text class="label">{{mode === 'scale' ? '选择起始音' : '选择唱名'}}</text>
-      <view class="note-row note-name-row">
-        <button wx:for="{{noteOptions}}" wx:key="*this" class="note-choice {{initialNote === item + selectedOctave ? 'selected' : ''}}" data-note="{{item}}" bindtap="chooseInitial" hover-class="note-pressed" aria-label="选择音名 {{item}}">{{item}}</button>
+      <view class="note-row note-grid">
+        <button wx:for="{{octaveOptions}}" wx:key="*this" class="note-choice {{selectedOctave === item ? 'selected' : ''}}" data-octave="{{item}}" bindtap="chooseOctave" hover-class="note-pressed" aria-label="选择第 {{item}} 组{{selectedOctave === item ? '，当前已选中' : ''}}">
+          <text>第{{item}}组</text><view wx:if="{{selectedOctave === item}}" class="choice-indicator"></view>
+        </button>
       </view>
 
-      <view class="selected-note">{{mode === 'scale' ? '起始音' : '当前音'}}：<text>{{initialNote}}</text></view>
-      <button class="demo-row" bindtap="toggleDemo" hover-class="demo-pressed" aria-label="{{demoPlaying ? '停止示范音' : '播放示范音'}}">
-        <view class="demo-button"><view class="{{demoPlaying ? 'stop-shape' : 'play-shape'}}"></view></view>
-        <view class="demo-content">
-          <text class="demo-title">{{demoPlaying ? (mode === 'scale' ? '完整音阶播放中' : '模拟钢琴音播放中') : (mode === 'scale' ? '试听完整音阶' : '试听模拟钢琴音')}}</text>
-          <text class="demo-copy">{{mode === 'scale' ? '起始音高' : '当前音高'}}：{{initialNote}}</text>
-        </view>
-      </button>
-      <button class="primary" bindtap="start" hover-class="button-pressed" disabled="{{starting}}">{{starting ? '正在准备麦克风…' : '开始录音练习'}}</button>
+      <text class="label">{{mode === 'scale' ? '选择起始音' : '选择唱名'}}</text>
+      <view class="note-row note-grid note-name-row">
+        <button wx:for="{{noteOptions}}" wx:key="*this" class="note-choice {{initialNote === item + selectedOctave ? 'selected' : ''}} {{item === 'B' ? 'last-note' : ''}}" data-note="{{item}}" bindtap="chooseInitial" hover-class="note-pressed" aria-label="选择音名 {{item}}{{initialNote === item + selectedOctave ? '，当前已选中' : ''}}">
+          <text>{{item}}</text><view wx:if="{{initialNote === item + selectedOctave}}" class="choice-indicator"></view>
+        </button>
+      </view>
+
+      <view class="action-stack">
+        <button class="demo-row" bindtap="toggleDemo" hover-class="demo-pressed" aria-label="{{demoPlaying ? '停止示范音' : '播放示范音'}}">
+          <view class="demo-button"><view class="{{demoPlaying ? 'stop-shape' : 'play-shape'}}"></view></view>
+          <view class="demo-content">
+            <text class="demo-title">{{demoPlaying ? (mode === 'scale' ? '完整音阶播放中' : '模拟钢琴音播放中') : (mode === 'scale' ? '试听完整音阶' : '试听模拟钢琴音')}}</text>
+            <text class="demo-copy">当前选择 {{initialNote}} · 点击试听</text>
+          </view>
+        </button>
+        <button class="primary" bindtap="start" hover-class="button-pressed" disabled="{{starting}}">{{starting ? '正在准备麦克风…' : '开始录音练习'}}</button>
+      </view>
       <text class="permission-hint">点击后会请求麦克风权限</text>
       <text wx:if="{{feedbackType === 'error'}}" class="setup-error">{{feedback}}</text>
     </view>
