@@ -93,7 +93,8 @@
 .pitch-segment { position: absolute; z-index: 2; height: 8rpx; border-radius: 999rpx; background: var(--leta-pitch); box-shadow: 0 0 10rpx rgba(143,224,208,.36); transform-origin: left center; }
 .pitch-dot { position: absolute; z-index: 2; width: 17rpx; height: 17rpx; border: 4rpx solid #fff; border-radius: 50%; background: var(--leta-theory); box-shadow: 0 0 0 7rpx rgba(242,198,95,.2); transform: translate(-50%,-50%); }
 .chart-label-layer { position: absolute; z-index: 4; inset: 0; pointer-events: none; }
-.chart-axis-label { position: absolute; left: 13rpx; color: #bcb7cf; font-size: 22rpx; line-height: 26rpx; text-shadow: 0 1rpx 2rpx var(--leta-chart); transform: translateY(-85%); }
+.chart-axis-label { position: absolute; left: 10rpx; padding: 0 4rpx; border-radius: 6rpx; background: rgba(52,47,91,.76); color: #d8d3e4; font-size: 16rpx; line-height: 18rpx; letter-spacing: -.2rpx; text-shadow: 0 1rpx 2rpx rgba(30,25,61,.5); transform: translateY(-85%); }
+.chart-axis-label.major { color: #fff; font-size: 18rpx; font-weight: 700; }
 .chart-axis-label.major { color: #fff; font-weight: 650; }
 .target-guide-label { position: absolute; right: 12rpx; padding: 5rpx 12rpx; border: 2rpx solid rgba(184,175,193,.7); border-radius: 999rpx; background: #f0ebf2; color: #655b6e; font-size: 21rpx; font-weight: 700; line-height: 25rpx; transform: translateY(-50%); }
 .chart-empty { position: absolute; z-index: 5; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22rpx; padding: 40rpx; color: #e7e3f1; font-size: 23rpx; line-height: 1.55; pointer-events: none; }

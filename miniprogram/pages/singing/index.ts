@@ -7,7 +7,9 @@ const MAJOR_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12]
 const CHART_VIEW_SECONDS = 8
 const CHART_VIEW_WIDTH_RPX = 670
 const CHART_HEIGHT_RPX = 560
-const SCALE_TARGET_HOLD_MS = 500
+// 音阶跟练按“检测到有效音高”推进，不要求必须唱准；保留短暂持续时间避免
+// 麦克风噪声或单个误检直接跳过多个目标音。
+const SCALE_TARGET_DETECT_MS = 500
 
 type ChartLine = { label: string; top: number; major: boolean }
 type TargetGuide = { label: string; top: number; stagger: boolean }
@@ -77,7 +79,10 @@ Page({
   chartMaxMidi: 72,
   chartTouchStartX: null as number | null,
   chartCurrentScrollLeft: 0,
-  scaleProgress: createSequentialProgressTracker(MAJOR_SCALE_OFFSETS.length, SCALE_TARGET_HOLD_MS),
+  chartPinchStartDistance: null as number | null,
+  chartPinchStartZoom: 1,
+  chartZoom: 1,
+  scaleProgress: createSequentialProgressTracker(MAJOR_SCALE_OFFSETS.length, SCALE_TARGET_DETECT_MS),
   feedbackMode: '温和' as '温和' | '直接' | '少提示',
   onLoad(options: any) {
     const single = options && options.mode === 'single'
@@ -609,8 +614,13 @@ Page({
   },
   buildRecordedPitchVisual(frames: RecordedPitchFrame[], durationMs: number, chartWidthRpx = CHART_VIEW_WIDTH_RPX): { segments: PitchSegment[]; dots: PitchDot[] } {
     const detected = frames.filter((frame) => frame.frequency > 0)
-    const step = Math.max(1, Math.ceil(detected.length / 180))
-    const sampled = detected.filter((_frame, index) => index % step === 0 || index === detected.length - 1)
+    // 按时间采样，避免不同真机的录音回调频率导致轨迹过密。
+    const sampled: RecordedPitchFrame[] = []
+    detected.forEach((frame) => {
+      const previous = sampled[sampled.length - 1]
+      if (!previous || frame.at - previous.at >= 100) sampled.push(frame)
+      else if (frame.at >= durationMs - 100) sampled[sampled.length - 1] = frame
+    })
     const points = sampled.map((frame) => ({ at: frame.at, left: 0.3 + frame.at / Math.max(1, durationMs) * 99.4, top: this.midiToChartTop(69 + 12 * Math.log(frame.frequency / 440) / Math.log(2)) }))
     const segments: PitchSegment[] = []
     for (let index = 1; index < points.length; index++) {
@@ -712,11 +722,13 @@ Page({
       const visual = this.buildRecordedPitchVisual(this.recordedPitchFrames, chartDurationMs, chartWidthRpx)
       const chartScrollLeft = this.data.chartFollowLatest ? this.chartScrollForPosition(chartWidthRpx, 1) : this.data.chartScrollLeft
       const inTune = Math.abs(cents) <= 20
-      const scaleResult = this.data.mode === 'scale' ? this.scaleProgress.observe(inTune, analyzedDurationMs) : null
+      // 目标推进只依赖“已经检测到有效音高”，音准偏高/偏低仍然正常反馈，
+      // 这样用户可以顺着音阶练习，而不会因为没唱准一直卡在 C3。
+      const scaleResult = this.data.mode === 'scale' ? this.scaleProgress.observe(true, analyzedDurationMs) : null
       let feedback = this.pitchFeedback(cents)
       if (scaleResult && scaleResult.advanced) feedback = `很好，接下来唱 ${this.midiToNote(this.currentTargetMidi())}`
-      if (scaleResult && scaleResult.completed && inTune) feedback = '完整音阶唱完了，保持得很好'
-      this.setData({ frameCount: this.data.frameCount + 1, voicedFrames: this.data.voicedFrames + 1, inTuneFrames: this.data.inTuneFrames + (inTune ? 1 : 0), inputLevel, waveformBars, pitchHistory: history, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detected), targetNote: this.midiToNote(targetMidi), pitch: `${detected.toFixed(1)} Hz`, cents, feedback, feedbackType: inTune ? 'good' : 'off', scaleStep: targetIndex + 1, scaleCompleted: !!(scaleResult && scaleResult.completed), chartWidthRpx, chartScrollLeft })
+      if (scaleResult && scaleResult.completed) feedback = inTune ? '完整音阶唱完了，保持得很好' : '完整音阶唱完了，可以再听一次巩固音准'
+      this.setData({ frameCount: this.data.frameCount + 1, voicedFrames: this.data.voicedFrames + 1, inTuneFrames: this.data.inTuneFrames + (inTune ? 1 : 0), inputLevel, waveformBars, pitchHistory: history, pitchSegments: visual.segments, pitchDots: visual.dots, chartHasSignal: true, currentNote: this.hzToNote(detected), targetNote: this.midiToNote(targetMidi), targetGuides: this.buildTargetGuides(), pitch: `${detected.toFixed(1)} Hz`, cents, feedback, feedbackType: inTune ? 'good' : 'off', scaleStep: scaleResult ? scaleResult.index + 1 : targetIndex + 1, scaleCompleted: !!(scaleResult && scaleResult.completed), chartWidthRpx, chartScrollLeft })
     } else {
       if (this.data.mode === 'scale') this.scaleProgress.observe(false, analyzedDurationMs)
       this.setData({ frameCount: this.data.frameCount + 1, inputLevel, waveformBars, targetNote: this.midiToNote(targetMidi), scaleStep: targetIndex + 1, feedback: rms > 0.008 ? '声音进来了，正在定位音高' : '请靠近麦克风唱出持续音', feedbackType: rms > 0.008 ? 'listening' : 'idle' })
@@ -783,13 +795,13 @@ Page({
   buildTargetGuides(): TargetGuide[] {
     const rootMidi = this.noteToMidi(this.data.initialNote)
     const offsets = this.data.mode === 'scale' ? MAJOR_SCALE_OFFSETS : [0]
-    return offsets.map((offset, index) => {
-      const midi = rootMidi + offset
-      return { label: this.midiToNote(midi), top: this.midiToChartTop(midi), stagger: index % 2 === 1 }
-    })
+    const targetIndex = this.data.mode === 'scale' ? this.scaleProgress.currentIndex() : 0
+    const midi = rootMidi + offsets[Math.min(targetIndex, offsets.length - 1)]
+    return [{ label: this.midiToNote(midi), top: this.midiToChartTop(midi), stagger: false }]
   },
   chartWidthForDuration(durationMs: number) {
-    return Math.max(CHART_VIEW_WIDTH_RPX, Math.ceil(durationMs / (CHART_VIEW_SECONDS * 1000) * CHART_VIEW_WIDTH_RPX))
+    const baseWidth = Math.max(CHART_VIEW_WIDTH_RPX, Math.ceil(durationMs / (CHART_VIEW_SECONDS * 1000) * CHART_VIEW_WIDTH_RPX))
+    return Math.max(CHART_VIEW_WIDTH_RPX, Math.ceil(baseWidth * this.chartZoom))
   },
   chartScrollForPosition(chartWidthRpx: number, progress: number) {
     const cursorRpx = chartWidthRpx * Math.max(0, Math.min(1, progress))
@@ -803,10 +815,30 @@ Page({
     return Math.round(rpx * info.windowWidth / 750)
   },
   onChartTouchStart(event: any) {
+    const touches = event.touches || []
+    if (touches.length >= 2) {
+      this.chartPinchStartDistance = this.chartTouchDistance(touches)
+      this.chartPinchStartZoom = this.chartZoom
+      this.chartTouchStartX = null
+      return
+    }
     const touch = event.touches && event.touches[0]
     this.chartTouchStartX = touch ? touch.clientX : null
   },
   onChartTouchMove(event: any) {
+    const touches = event.touches || []
+    if (touches.length >= 2 && this.chartPinchStartDistance) {
+      const distance = this.chartTouchDistance(touches)
+      const zoom = Math.max(0.75, Math.min(4, this.chartPinchStartZoom * distance / this.chartPinchStartDistance))
+      if (Math.abs(zoom - this.chartZoom) < 0.03) return
+      this.chartZoom = zoom
+      const durationMs = this.data.recordingPlayback
+        ? Math.max(1, this.data.playbackDuration * 1000)
+        : Math.max(CHART_VIEW_SECONDS * 1000, this.data.seconds * 1000)
+      const chartWidthRpx = this.chartWidthForDuration(durationMs)
+      this.setData({ chartWidthRpx, chartFollowLatest: false })
+      return
+    }
     if (this.chartTouchStartX === null || !this.data.chartFollowLatest || this.data.chartWidthRpx <= CHART_VIEW_WIDTH_RPX) return
     const touch = event.touches && event.touches[0]
     if (!touch || Math.abs(touch.clientX - this.chartTouchStartX) < 8) return
@@ -817,9 +849,17 @@ Page({
   },
   onChartTouchEnd() {
     this.chartTouchStartX = null
+    this.chartPinchStartDistance = null
     if (!this.data.chartFollowLatest && Math.abs(this.data.chartScrollLeft - this.chartCurrentScrollLeft) > 1) {
       this.setData({ chartScrollLeft: this.chartCurrentScrollLeft })
     }
+  },
+  chartTouchDistance(touches: any[]) {
+    const first = touches[0]
+    const second = touches[1]
+    const dx = Number(first.clientX || 0) - Number(second.clientX || 0)
+    const dy = Number(first.clientY || 0) - Number(second.clientY || 0)
+    return Math.max(1, Math.sqrt(dx * dx + dy * dy))
   },
   followLatestPitch() {
     const progress = this.data.recordingPlayback ? this.data.playbackProgress / 100 : 1

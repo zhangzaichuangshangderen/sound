@@ -130,7 +130,7 @@ test('BPM 按 10 为单位并限制在 40 到 320', () => {
   assert.equal(normalizeBpm(500), 320)
 })
 
-test('音阶目标需要连续稳定达到阈值才按顺序推进', () => {
+test('音阶目标检测到有效音高后连续一段时间按顺序推进，不要求唱准', () => {
   const tracker = createSequentialProgressTracker(8, 500)
   assert.deepEqual(tracker.observe(true, 240), { index: 0, advanced: false, completed: false })
   assert.deepEqual(tracker.observe(false, 100), { index: 0, advanced: false, completed: false })
@@ -143,4 +143,10 @@ test('音阶目标完成最后一个音后不会越过末尾', () => {
   assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: true, completed: false })
   assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: false, completed: true })
   assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: false, completed: true })
+})
+
+test('音阶目标即使音准偏离也会顺序推进', () => {
+  const tracker = createSequentialProgressTracker(2, 100)
+  // true 表示检测到有效音高；这里不区分偏高、偏低或唱准。
+  assert.deepEqual(tracker.observe(true, 100), { index: 1, advanced: true, completed: false })
 })

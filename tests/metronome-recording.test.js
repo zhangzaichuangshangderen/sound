@@ -29,10 +29,12 @@ test('录音仅在录音管理器确认启动后再启动节拍器，避免音�
   assert.match(recorderStarted, /this\.startMetronome\(\)/)
 })
 
-test('节拍器优先使用本地 WAV 与 InnerAudioContext，WebAudio 仅作降级', () => {
-  assert.match(source, /prepareMetronomeClickFiles\(\)/)
+test('节拍器优先使用本地 WAV 循环音轨，WebAudio 仅作降级', () => {
+  assert.match(source, /prepareMetronomeLoopFile\(/)
   assert.match(source, /createInnerAudioContext\(\)/)
-  assert.match(source, /player\.onCanplay\(startPlayback\)/)
+  assert.match(source, /startMetronomeLoopPlayer\(/)
+  assert.match(source, /player\.onCanplay\(\(\) =>/)
+  assert.match(source, /player\.loop = true/)
   assert.match(source, /obeyMuteSwitch: false/)
   assert.match(source, /metronomeSoundMode = 'webaudio'/)
 })

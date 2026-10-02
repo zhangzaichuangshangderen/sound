@@ -110,9 +110,9 @@ function createSequentialProgressTracker(stepCount, holdMs) {
     currentIndex() {
       return index
     },
-    observe(inTune, durationMs) {
+    observe(hasDetectedPitch, durationMs) {
       if (completed) return { index, advanced: false, completed: true }
-      if (!inTune) {
+      if (!hasDetectedPitch) {
         stableMs = 0
         return { index, advanced: false, completed: false }
       }

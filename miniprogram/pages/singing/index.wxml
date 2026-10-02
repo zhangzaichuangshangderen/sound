@@ -70,7 +70,7 @@
     </view>
 
     <view class="pitch-chart">
-      <scroll-view class="pitch-chart-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{chartScrollLeft}}" bindscroll="onChartScroll" bindtouchstart="onChartTouchStart" bindtouchmove="onChartTouchMove" bindtouchend="onChartTouchEnd" bindtouchcancel="onChartTouchEnd" aria-label="音高时间轨迹，可左右拖动查看历史">
+      <scroll-view class="pitch-chart-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{chartScrollLeft}}" bindscroll="onChartScroll" bindtouchstart="onChartTouchStart" bindtouchmove="onChartTouchMove" bindtouchend="onChartTouchEnd" bindtouchcancel="onChartTouchEnd" aria-label="音高时间轨迹，双指捏合缩放，单指左右拖动查看历史">
         <view class="pitch-chart-track" style="width:{{chartWidthRpx}}rpx;">
           <view wx:for="{{targetGuides}}" wx:key="label" class="target-guide {{targetNote === item.label ? 'active' : ''}}" style="top:{{item.top}}%;"></view>
           <view wx:for="{{chartLines}}" wx:key="label" class="chart-line {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;"></view>
@@ -128,7 +128,7 @@
         <text>{{recordingPlayback ? playbackSeconds + ' / ' + playbackDuration + ' 秒' : '回放时同步显示音高'}}</text>
       </view>
       <view class="pitch-chart finish-pitch-chart">
-        <scroll-view class="pitch-chart-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{chartScrollLeft}}" bindscroll="onChartScroll" bindtouchstart="onChartTouchStart" bindtouchmove="onChartTouchMove" bindtouchend="onChartTouchEnd" bindtouchcancel="onChartTouchEnd" aria-label="录音音高时间轨迹，可左右拖动查看历史">
+        <scroll-view class="pitch-chart-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{chartScrollLeft}}" bindscroll="onChartScroll" bindtouchstart="onChartTouchStart" bindtouchmove="onChartTouchMove" bindtouchend="onChartTouchEnd" bindtouchcancel="onChartTouchEnd" aria-label="录音音高时间轨迹，双指捏合缩放，单指左右拖动查看历史">
           <view class="pitch-chart-track" style="width:{{chartWidthRpx}}rpx;">
             <view wx:for="{{targetGuides}}" wx:key="label" class="target-guide {{targetNote === item.label ? 'active' : ''}}" style="top:{{item.top}}%;"></view>
             <view wx:for="{{chartLines}}" wx:key="label" class="chart-line {{item.major ? 'major' : ''}}" style="top:{{item.top}}%;"></view>

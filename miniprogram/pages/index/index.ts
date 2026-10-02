@@ -1,32 +1,18 @@
 import { createRecorderSession, normalizeBpm, prepareAudioContext } from '../../utils/audio-session'
+import { createMetronomeLoopWav, METRONOME_TONE_CONFIG, RHYTHM_SUBDIVISIONS } from '../../utils/metronome-loop'
 
 type TabKey = 'sing' | 'instrument' | 'theory' | 'practice' | 'me'
 
 let metronomeTimer: ReturnType<typeof setTimeout> | null = null
-let countInTimer: ReturnType<typeof setInterval> | null = null
-let rhythmTimers: Array<ReturnType<typeof setTimeout>> = []
+let countInTimer: ReturnType<typeof setTimeout> | null = null
 let metronomeContext: any = null
 let metronomeStartToken = 0
+let metronomePulseIndex = 0
 let recorderSession: ReturnType<typeof createRecorderSession> | null = null
 
 const METRONOME_RECORD_MAX_DURATION_MS = 180000
-const METRONOME_SAMPLE_RATE = 22050
-const METRONOME_CLICK_FULL_DURATION_MS = 72
-const METRONOME_CLICK_SHORT_DURATION_MS = 28
-const METRONOME_TONE_CONFIG: Record<string, { type: 'sine' | 'square' | 'triangle'; high: number; low: number }> = {
-  classic: { type: 'sine', high: 1120, low: 760 },
-  wood: { type: 'square', high: 880, low: 620 },
-  soft: { type: 'triangle', high: 720, low: 520 },
-}
-const RHYTHM_SUBDIVISIONS: Record<string, number> = {
-  off: 1,
-  eighth: 2,
-  triplet: 3,
-  sixteenth: 4,
-}
-let metronomeClickPaths: Record<string, string> | null = null
-let metronomeClickPreparation: Promise<Record<string, string>> | null = null
-let metronomeSoundMode: 'file' | 'webaudio' | null = null
+let metronomeLoopPlayer: WechatMiniprogram.InnerAudioContext | null = null
+let metronomeSoundMode: 'loop' | 'webaudio' | null = null
 let innerAudioConfigured = false
 const metronomeRecordingState = {
   recorder: null as any,
@@ -41,42 +27,6 @@ const metronomeRecordingState = {
   player: null as WechatMiniprogram.InnerAudioContext | null,
 }
 
-function createMetronomeClickWav(tone: keyof typeof METRONOME_TONE_CONFIG, accent: boolean, durationMs: number) {
-  const definition = METRONOME_TONE_CONFIG[tone]
-  const sampleCount = Math.round(METRONOME_SAMPLE_RATE * durationMs / 1000)
-  const wav = new ArrayBuffer(44 + sampleCount * 2)
-  const view = new DataView(wav)
-  const writeText = (offset: number, value: string) => {
-    for (let index = 0; index < value.length; index++) view.setUint8(offset + index, value.charCodeAt(index))
-  }
-  writeText(0, 'RIFF')
-  view.setUint32(4, 36 + sampleCount * 2, true)
-  writeText(8, 'WAVE')
-  writeText(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, METRONOME_SAMPLE_RATE, true)
-  view.setUint32(28, METRONOME_SAMPLE_RATE * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeText(36, 'data')
-  view.setUint32(40, sampleCount * 2, true)
-  const frequency = accent ? definition.high : definition.low
-  for (let index = 0; index < sampleCount; index++) {
-    const progress = index / sampleCount
-    const envelope = Math.pow(1 - progress, accent ? 3.5 : 4.5)
-    const phase = 2 * Math.PI * frequency * index / METRONOME_SAMPLE_RATE
-    const oscillator = definition.type === 'square'
-      ? (Math.sin(phase) >= 0 ? 1 : -1)
-      : definition.type === 'triangle'
-        ? 2 / Math.PI * Math.asin(Math.sin(phase))
-        : Math.sin(phase)
-    view.setInt16(44 + index * 2, Math.round(oscillator * envelope * 0.65 * 32767), true)
-  }
-  return wav
-}
-
 function writeLocalAudioFile(filePath: string, data: ArrayBuffer) {
   return new Promise<void>((resolve, reject) => {
     const fileSystem = (wx as any).getFileSystemManager && (wx as any).getFileSystemManager()
@@ -88,30 +38,15 @@ function writeLocalAudioFile(filePath: string, data: ArrayBuffer) {
   })
 }
 
-function prepareMetronomeClickFiles() {
-  if (metronomeClickPaths) return Promise.resolve(metronomeClickPaths)
-  if (metronomeClickPreparation) return metronomeClickPreparation
+function prepareMetronomeLoopFile(tone: keyof typeof METRONOME_TONE_CONFIG, bpm: number, beatsPerMeasure: number, rhythm: string) {
   const wxAudio = wx as any
   const userDataPath = wxAudio.env && wxAudio.env.USER_DATA_PATH
   if (!userDataPath) return Promise.reject(new Error('当前环境不支持本地音频缓存'))
-  const entries = Object.keys(METRONOME_TONE_CONFIG).flatMap((tone) => [true, false].flatMap((accent) => [
-    { profile: 'full', durationMs: METRONOME_CLICK_FULL_DURATION_MS },
-    { profile: 'short', durationMs: METRONOME_CLICK_SHORT_DURATION_MS },
-  ].map(({ profile, durationMs }) => ({
-    key: `${tone}-${accent ? 'accent' : 'regular'}-${profile}`,
-    filePath: `${userDataPath}/leta-metronome-v3-${tone}-${accent ? 'accent' : 'regular'}-${profile}.wav`,
-    data: createMetronomeClickWav(tone, accent, durationMs),
-  }))))
-  metronomeClickPreparation = Promise.all(entries.map((entry) => writeLocalAudioFile(entry.filePath, entry.data)))
-    .then(() => {
-      metronomeClickPaths = entries.reduce((paths, entry) => ({ ...paths, [entry.key]: entry.filePath }), {})
-      return metronomeClickPaths
-    })
-    .catch((error) => {
-      metronomeClickPreparation = null
-      throw error
-    })
-  return metronomeClickPreparation
+  const normalizedBpm = Math.max(40, Math.min(320, Math.round(bpm / 10) * 10))
+  const normalizedBeats = Math.max(1, Math.round(beatsPerMeasure))
+  const loop = createMetronomeLoopWav(tone, normalizedBpm, normalizedBeats, rhythm)
+  const filePath = `${userDataPath}/leta-metronome-loop-v2-${tone}-${normalizedBpm}-${normalizedBeats}-${rhythm}.wav`
+  return writeLocalAudioFile(filePath, loop.wav).then(() => ({ filePath, measureDurationMs: loop.measureDurationMs }))
 }
 
 function configureInnerAudio() {
@@ -123,6 +58,49 @@ function configureInnerAudio() {
     obeyMuteSwitch: false,
     mixWithOther: true,
     fail: (error: any) => console.info('当前环境不支持节拍器音频输出配置', error),
+  })
+}
+
+function stopMetronomeLoopPlayer(destroy = false) {
+  if (!metronomeLoopPlayer) return
+  try { metronomeLoopPlayer.stop() } catch (error) { console.error('停止节拍器循环音轨失败', error) }
+  if (destroy) {
+    try { metronomeLoopPlayer.destroy() } catch (error) { console.error('释放节拍器循环音轨失败', error) }
+    metronomeLoopPlayer = null
+  }
+}
+
+function startMetronomeLoopPlayer(source: string, volume: number) {
+  stopMetronomeLoopPlayer(true)
+  const player = wx.createInnerAudioContext()
+  metronomeLoopPlayer = player
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    let playbackRequested = false
+    const fail = (error: any) => {
+      if (settled) {
+        console.error('节拍器循环音轨运行失败', error)
+        return
+      }
+      settled = true
+      reject(error)
+    }
+    player.autoplay = false
+    player.loop = true
+    player.obeyMuteSwitch = false
+    player.volume = Math.max(0, Math.min(1, volume / 100))
+    player.onCanplay(() => {
+      if (playbackRequested) return
+      playbackRequested = true
+      player.play()
+    })
+    player.onPlay(() => {
+      if (settled) return
+      settled = true
+      resolve()
+    })
+    player.onError(fail)
+    player.src = source
   })
 }
 
@@ -200,6 +178,7 @@ Component({
       if (recorderSession) recorderSession.detach(this)
       if (metronomeContext && metronomeContext.close) metronomeContext.close()
       metronomeContext = null
+      stopMetronomeLoopPlayer(true)
     },
   },
   pageLifetimes: {
@@ -271,13 +250,14 @@ Component({
       let createdContext: any = null
       this.setData({ metronomeStarting: true })
       configureInnerAudio()
-      prepareMetronomeClickFiles()
-        .then((context: any) => {
-          if (token !== metronomeStartToken) {
-            return
-          }
-          metronomeClickPaths = context
-          metronomeSoundMode = 'file'
+      prepareMetronomeLoopFile(this.data.metronomeTone, this.data.bpm, this.data.beatsPerMeasure, this.data.metronomeRhythm)
+        .then((loop) => {
+          if (token !== metronomeStartToken) return Promise.reject(new Error('节拍器启动已取消'))
+          return startMetronomeLoopPlayer(loop.filePath, this.data.metronomeVolume)
+        })
+        .then(() => {
+          if (token !== metronomeStartToken) return
+          metronomeSoundMode = 'loop'
           this.setData({ metronomeStarting: false })
           if (includeCountIn) this.startCountIn()
           else this.beginMetronome()
@@ -311,39 +291,56 @@ Component({
         })
     },
     startCountIn() {
-      let remaining = this.data.beatsPerMeasure
-      const interval = 60000 / this.data.bpm
+      const remaining = this.data.beatsPerMeasure
       this.setData({ countInActive: true, countInCountdown: remaining, metronomePlaying: false, beat: 0 })
-      this.playMetronomeTone(true, true)
-      countInTimer = setInterval(() => {
-        remaining--
-        if (remaining <= 0) {
-          if (countInTimer) clearInterval(countInTimer)
-          countInTimer = null
-          this.beginMetronome()
-          return
-        }
-        this.setData({ countInCountdown: remaining })
-        this.playMetronomeTone(false, true)
-      }, interval)
+      this.runCountInTick(Date.now(), remaining)
+    },
+    runCountInTick(scheduledAt: number, remaining: number) {
+      if (!this.data.countInActive) return
+      if (metronomeSoundMode === 'webaudio') this.playMetronomeTone(remaining === this.data.beatsPerMeasure, true)
+      const interval = 60000 / this.data.bpm
+      const nextScheduledAt = scheduledAt + interval
+      if (remaining <= 1) {
+        countInTimer = setTimeout(() => this.beginMetronome(), Math.max(0, nextScheduledAt - Date.now()))
+        return
+      }
+      countInTimer = setTimeout(() => {
+        this.setData({ countInCountdown: remaining - 1 })
+        this.runCountInTick(nextScheduledAt, remaining - 1)
+      }, Math.max(0, nextScheduledAt - Date.now()))
     },
     beginMetronome() {
+      countInTimer = null
+      metronomePulseIndex = 0
       this.setData({ countInActive: false, countInCountdown: 0, metronomePlaying: true, beat: 0 })
-      this.runMetronomeTick(Date.now())
+      this.runMetronomePulse(Date.now())
     },
-    runMetronomeTick(scheduledAt: number) {
+    runMetronomePulse(scheduledAt: number) {
       if (!this.data.metronomePlaying) return
-      this.tickMetronome()
-      const interval = 60000 / this.data.bpm
+      const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
+      const isMainBeat = metronomePulseIndex % subdivisions === 0
+      const beat = Math.floor(metronomePulseIndex / subdivisions) % this.data.beatsPerMeasure + 1
+      if (isMainBeat) {
+        this.setData({ beat })
+        if (beat === 1) wx.vibrateShort({ type: 'light' })
+      }
+      if (metronomeSoundMode === 'webaudio') this.playMetronomeTone(isMainBeat && beat === 1)
+      metronomePulseIndex++
+      const interval = 60000 / this.data.bpm / subdivisions
       const now = Date.now()
-      const nextScheduledAt = scheduledAt + interval > now ? scheduledAt + interval : now + interval
-      metronomeTimer = setTimeout(() => this.runMetronomeTick(nextScheduledAt), Math.max(0, nextScheduledAt - Date.now()))
+      let nextScheduledAt = scheduledAt + interval
+      if (nextScheduledAt <= now) {
+        const skippedPulses = Math.floor((now - nextScheduledAt) / interval) + 1
+        metronomePulseIndex += skippedPulses
+        nextScheduledAt += skippedPulses * interval
+      }
+      metronomeTimer = setTimeout(() => this.runMetronomePulse(nextScheduledAt), Math.max(0, nextScheduledAt - Date.now()))
     },
     stopMetronome(keepRecording = false) {
       metronomeStartToken++
       if (metronomeTimer) clearTimeout(metronomeTimer)
-      if (countInTimer) clearInterval(countInTimer)
-      this.clearRhythmTimers()
+      if (countInTimer) clearTimeout(countInTimer)
+      stopMetronomeLoopPlayer()
       metronomeTimer = null
       countInTimer = null
       this.setData({ metronomePlaying: false, metronomeStarting: false, countInActive: false, countInCountdown: 0, beat: 0 })
@@ -354,60 +351,7 @@ Component({
       this.stopMetronome()
       if (shouldRestart) this.startMetronomeAfterAudioReady(false)
     },
-    tickMetronome() {
-      const beat = this.data.beat % this.data.beatsPerMeasure + 1
-      this.setData({ beat })
-      if (beat === 1) wx.vibrateShort({ type: 'light' })
-      this.playMetronomeTone(beat === 1)
-      this.scheduleRhythmSubdivisions()
-    },
-    clearRhythmTimers() {
-      rhythmTimers.forEach((timer) => clearTimeout(timer))
-      rhythmTimers = []
-    },
-    scheduleRhythmSubdivisions() {
-      this.clearRhythmTimers()
-      const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
-      if (subdivisions < 2 || !this.data.metronomePlaying) return
-      const beatDuration = 60000 / this.data.bpm
-      const playbackToken = metronomeStartToken
-      for (let index = 1; index < subdivisions; index++) {
-        const timer = setTimeout(() => {
-          if (playbackToken === metronomeStartToken && this.data.metronomePlaying) this.playMetronomeTone(false)
-        }, Math.round(beatDuration * index / subdivisions))
-        rhythmTimers.push(timer)
-      }
-    },
     playMetronomeTone(accent: boolean, countIn = false) {
-      if (metronomeSoundMode === 'file') {
-        const subdivisions = RHYTHM_SUBDIVISIONS[this.data.metronomeRhythm] || 1
-        const subdivisionDuration = 60000 / this.data.bpm / subdivisions
-        const profile = subdivisionDuration < 92 ? 'short' : 'full'
-        const key = `${this.data.metronomeTone}-${accent ? 'accent' : 'regular'}-${profile}`
-        const source = metronomeClickPaths && metronomeClickPaths[key]
-        if (!source) {
-          console.error('未找到节拍器本地音频', { key })
-          return
-        }
-        const player = wx.createInnerAudioContext()
-        let started = false
-        const startPlayback = () => {
-          if (started) return
-          started = true
-          player.play()
-        }
-        player.autoplay = false
-        player.obeyMuteSwitch = false
-        player.volume = Math.max(0, Math.min(1, this.data.metronomeVolume / 100)) * (countIn ? 0.82 : 1)
-        player.onCanplay(startPlayback)
-        player.onError((error) => {
-          console.error('播放节拍器本地音频失败', error)
-          player.destroy()
-        })
-        player.onEnded(() => player.destroy())
-        player.src = source
-        return
-      }
       if (metronomeSoundMode !== 'webaudio' || !metronomeContext) return
       try {
         const toneMap: Record<string, { type: string; high: number; low: number; duration: number; level: number }> = {
@@ -464,13 +408,22 @@ Component({
       this.setData({ metronomeRhythm: rhythm })
       this.restartMetronomeWithoutCountIn()
     },
-    selectTone(e: any) { this.setData({ metronomeTone: String(e.currentTarget.dataset.tone) }) },
-    changeVolume(e: any) { this.setData({ metronomeVolume: Number(e.detail.value) }) },
+    selectTone(e: any) {
+      const tone = String(e.currentTarget.dataset.tone)
+      if (!Object.prototype.hasOwnProperty.call(METRONOME_TONE_CONFIG, tone)) return
+      this.setData({ metronomeTone: tone })
+      this.restartMetronomeWithoutCountIn()
+    },
+    changeVolume(e: any) {
+      const metronomeVolume = Math.max(0, Math.min(100, Number(e.detail.value)))
+      if (metronomeLoopPlayer) metronomeLoopPlayer.volume = metronomeVolume / 100
+      this.setData({ metronomeVolume })
+    },
     toggleCountIn() {
       const enabled = !this.data.countInEnabled
       this.setData({ countInEnabled: enabled })
       if (!enabled && this.data.countInActive) {
-        if (countInTimer) clearInterval(countInTimer)
+        if (countInTimer) clearTimeout(countInTimer)
         countInTimer = null
         this.beginMetronome()
       }
