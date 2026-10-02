@@ -3,6 +3,7 @@
     "pages/index/index",
     "pages/singing/index",
     "pages/ear-training/index",
+    "pages/chords/index",
     "pages/theory/index"
   ],
   "window": {

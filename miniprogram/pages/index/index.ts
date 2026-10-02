@@ -159,6 +159,7 @@ Component({
     practiceMinutes: 0,
     practiceDays: 0,
     feedbackMode: '温和',
+    chordNavigationPending: false,
   },
   lifetimes: {
     attached() {
@@ -216,6 +217,29 @@ Component({
     startSinging() { this.stopMetronome(); wx.navigateTo({ url: '../singing/index?mode=scale' }) },
     startSingle() { this.stopMetronome(); wx.navigateTo({ url: '../singing/index?mode=single' }) },
     startEarTraining() { this.stopMetronome(); wx.navigateTo({ url: '../ear-training/index' }) },
+    openChordPractice() {
+      if (this.data.chordNavigationPending) return
+      this.setData({ chordNavigationPending: true })
+      this.stopMetronome()
+      const navigate = () => {
+        wx.navigateTo({
+          url: '/pages/chords/index',
+          success: () => this.setData({ chordNavigationPending: false }),
+          fail: (error: any) => {
+            console.error('打开和弦练习失败', error)
+            this.setData({ chordNavigationPending: false })
+            const isTimeout = String(error && error.errMsg).includes('timeout')
+            wx.showToast({ title: isTimeout ? '页面加载超时，请重新编译后重试' : '打开和弦练习失败，请重试', icon: 'none' })
+          },
+        })
+      }
+      const wxRuntime = wx as any
+      if (typeof wxRuntime.nextTick === 'function') {
+        wxRuntime.nextTick(navigate)
+      } else {
+        setTimeout(navigate, 0)
+      }
+    },
     openMetronome() {
       const app = getApp<IAppOption>() as any
       app.globalData.openMetronomeRoute = true

@@ -47,6 +47,17 @@
           </view>
           <view class="instrument-open-cta">打开节拍器</view>
         </button>
+        <button class="instrument-tool-card chord-tool-card" bindtap="openChordPractice" hover-class="card-pressed" aria-label="打开吉他和弦练习">
+          <view class="instrument-card-main">
+            <view class="instrument-tool-copy">
+              <text class="instrument-tool-kicker">吉他练习</text>
+              <text class="instrument-tool-title">和弦练习</text>
+              <text class="instrument-tool-description">认识 G 调常用和弦，听懂也按对</text>
+            </view>
+            <view class="tool-chord" aria-hidden="true"><view></view><view></view><view></view><view></view><view></view><view></view><view class="tool-chord-dot dot-one"></view><view class="tool-chord-dot dot-two"></view><view class="tool-chord-dot dot-three"></view></view>
+          </view>
+          <view class="instrument-open-cta">开始和弦练习</view>
+        </button>
       </block>
 
       <block wx:else>
