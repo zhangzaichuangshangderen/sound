@@ -93,6 +93,24 @@ function prepareAudioContext(currentContext, createContext) {
   return Promise.resolve(context.resume()).then(() => context)
 }
 
+function configureAudioOutput(wxAudio, onError) {
+  if (!wxAudio || typeof wxAudio.setInnerAudioOption !== 'function') return false
+  try {
+    wxAudio.setInnerAudioOption({
+      obeyMuteSwitch: false,
+      mixWithOther: true,
+      fail: (error) => {
+        if (typeof onError === 'function') onError(error)
+      },
+    })
+    return true
+  } catch (error) {
+    if (typeof onError === 'function') onError(error)
+    else console.error('配置小程序音频输出失败', error)
+    return false
+  }
+}
+
 function normalizeBpm(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) return 80
@@ -134,4 +152,4 @@ function createSequentialProgressTracker(stepCount, holdMs) {
   }
 }
 
-module.exports = { createRecorderSession, createSequentialProgressTracker, normalizeBpm, prepareAudioContext }
+module.exports = { createRecorderSession, createSequentialProgressTracker, normalizeBpm, prepareAudioContext, configureAudioOutput }

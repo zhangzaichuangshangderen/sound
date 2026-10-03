@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { createRecorderSession, createSequentialProgressTracker, normalizeBpm, prepareAudioContext } = require('../miniprogram/utils/audio-session')
+const { configureAudioOutput, createRecorderSession, createSequentialProgressTracker, normalizeBpm, prepareAudioContext } = require('../miniprogram/utils/audio-session')
 
 function createRecorderMock() {
   const handlers = {}
@@ -16,6 +16,17 @@ function createRecorderMock() {
     stop() {},
   }
 }
+
+test('节拍器与和弦试听复用同一音频输出配置', () => {
+  let options
+  const configured = configureAudioOutput({
+    setInnerAudioOption(value) { options = value },
+  })
+  assert.equal(configured, true)
+  assert.equal(options.obeyMuteSwitch, false)
+  assert.equal(options.mixWithOther, true)
+  assert.equal(configureAudioOutput({}), false)
+})
 
 test('录音管理器只注册一次监听，并把第二次录音交给最新页面', () => {
   const recorder = createRecorderMock()

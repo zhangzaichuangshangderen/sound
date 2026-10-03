@@ -1,4 +1,4 @@
-import { createRecorderSession, normalizeBpm, prepareAudioContext } from '../../utils/audio-session'
+import { configureAudioOutput, createRecorderSession, normalizeBpm, prepareAudioContext } from '../../utils/audio-session'
 import { createMetronomeLoopWav, METRONOME_TONE_CONFIG, RHYTHM_SUBDIVISIONS } from '../../utils/metronome-loop'
 
 type TabKey = 'sing' | 'instrument' | 'theory' | 'practice' | 'me'
@@ -52,13 +52,7 @@ function prepareMetronomeLoopFile(tone: keyof typeof METRONOME_TONE_CONFIG, bpm:
 function configureInnerAudio() {
   if (innerAudioConfigured) return
   innerAudioConfigured = true
-  const wxAudio = wx as any
-  if (typeof wxAudio.setInnerAudioOption !== 'function') return
-  wxAudio.setInnerAudioOption({
-    obeyMuteSwitch: false,
-    mixWithOther: true,
-    fail: (error: any) => console.info('当前环境不支持节拍器音频输出配置', error),
-  })
+  configureAudioOutput(wx as any, (error: any) => console.info('当前环境不支持节拍器音频输出配置', error))
 }
 
 function stopMetronomeLoopPlayer(destroy = false) {
